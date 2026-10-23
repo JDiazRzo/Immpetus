@@ -1,0 +1,31 @@
+[project]
+name = "immpetus-backend"
+version = "0.1.0"
+description = "API FastAPI + integraciones (Gmail, Drive, IA) del sistema de selección Immpetus"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162.0",
+    "google-api-python-client>=2.201.0",
+    "google-auth>=2.62.0",
+    "google-genai>=2.33.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.1",
+    "python-multipart>=0.0.32",
+    "supabase>=2.33.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.2",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
