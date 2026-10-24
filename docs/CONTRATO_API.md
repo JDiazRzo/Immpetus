@@ -1,6 +1,6 @@
 # Contrato de la API · Sistema de selección Immpetus
 
-Versión 0.1 · Acordar en la primera reunión técnica antes de escribir código.
+Versión 0.2 · Agrega la sección 5 (reglas de negocio) con las decisiones de la revisión de backend.
 Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend y backend.
 
 ## Convenciones
@@ -37,6 +37,8 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 | `nivel` | `basico`, `intermedio`, `avanzado` |
 
 **Regla de oro (dilema ético):** el sistema nunca asigna `no_apto` por sí solo. La IA deja las notas 1–2 en `por_validar`; solo un usuario autenticado puede pasar a `no_apto`.
+
+**La API es la única puerta a la base de datos.** El frontend nunca se conecta directo a Supabase.
 
 ---
 
@@ -95,7 +97,7 @@ Detalle de una vacante activa (404 si está inactiva).
 | `nombre` | texto | Obligatorio |
 | `correo` | email | Obligatorio |
 | `celular` | texto | Obligatorio |
-| `archivo` | PDF | Solo `application/pdf`, máximo [POR CONFIRMAR] MB |
+| `archivo` | PDF | Solo `application/pdf`, máximo `MAX_PDF_MB` (variable de entorno, por defecto 5) |
 | `autorizacion_datos` | boolean | Debe ser `true`, si no → 400 |
 | `autorizacion_version` | texto | Ej. `"1.0"` |
 
@@ -183,6 +185,7 @@ Devuelve el candidato actualizado. Transiciones no permitidas → `409 CONFLICT`
 ```json
 { "nota": 3, "motivo": "Experiencia equivalente en ventas consultivas" }
 ```
+Corregir la nota **no cambia el estado** (ver regla 5.4). Devuelve el candidato con `nota_validada: true`.
 
 ### Reserva Estratégica
 
@@ -202,7 +205,7 @@ Respuesta `202 { "enviado": true }`.
 | Método | Ruta | Uso |
 |---|---|---|
 | `GET` | `/api/admin/correos-sin-asignar` | HV de correo que no se pudieron asociar a una vacante |
-| `POST` | `/api/admin/correos-sin-asignar/{id}/asignar` | `{ "vacante_id": "uuid" }` |
+| `POST` | `/api/admin/correos-sin-asignar/{id}/asignar` | `{ "vacante_id": "uuid" }` → crea el candidato y lo devuelve (ver regla 5.6) |
 
 ---
 
@@ -257,9 +260,79 @@ Flujo: leer correos → identificar la vacante por código en el asunto → si n
 
 El frontend usa `mocks/` con este mismo formato. Backend e integraciones deben devolver exactamente estas formas.
 
+---
+
+## 5. Reglas de negocio (decisiones)
+
+### 5.1 Transiciones de estado
+
+Las únicas transiciones válidas. Cualquier otra → `409 CONFLICT`. Todas las que se hacen desde `/api/admin` quedan registradas con `validado_por` (usuario autenticado).
+
+| Desde \ Hacia | `entrevista` | `reserva` | `por_validar` | `no_apto` | `contratado` |
+|---|---|---|---|---|---|
+| `nuevo` | ✅ | ✅ | — | ✅ | — |
+| `por_validar` | ✅ | ✅ | — | ✅ | — |
+| `reserva` | ✅ | — | — | ✅ | — |
+| `entrevista` | — | ✅ | — | ✅ | ✅ |
+| `no_apto` | — | — | — | — | — |
+| `contratado` | — | — | — | — | — |
+
+- `no_apto` y `contratado` son **finales**. Si hubo un error, el líder de RR. HH. lo resuelve fuera del sistema y queda como observación; no se reabre.
+- **Solo el sistema** asigna el estado inicial (`nuevo`, `reserva` o `por_validar`) con la primera calificación de la IA (regla 5.3). El sistema **nunca** asigna `no_apto`, `entrevista` ni `contratado`.
+- La tabla vive en `services/estados.py` como un diccionario; es la única función que inserta en `estados`.
+
+### 5.2 Campos `nota`, `nota_validada` y `validada_por`
+
+No son columnas: se derivan (vista `v_candidatos`, migración `0002`).
+
+| Campo | Significado |
+|---|---|
+| `nota` | La nota de la calificación **más reciente** (IA o analista). |
+| `nota_validada` | `true` si una persona ya revisó la nota: la última calificación la hizo un analista, **o** existe un cambio de estado hecho por un usuario después de la última calificación. |
+| `validada_por` | Nombre del usuario que hizo esa validación; `null` si `nota_validada = false`. |
+
+En la UI: `nota_validada = false` → "Sugerida por IA"; `true` → "Validada por {validada_por}".
+
+### 5.3 Mapeo nota → estado (solo la primera vez)
+
+Se aplica **una sola vez**, cuando la IA califica por primera vez a un candidato en estado `nuevo`:
+
+| Nota IA | Estado inicial |
+|---|---|
+| 4–5 | `nuevo` |
+| 3 | `reserva` |
+| 1–2 | `por_validar` |
+
+Si la IA vuelve a calificar (por ejemplo, tras ajustar la matriz), se guarda la nueva calificación pero **no se cambia el estado**.
+
+### 5.4 Corrección de nota por el analista
+
+`POST /calificacion` guarda la nueva nota con `origen = analista` y `motivo`, y **nunca cambia el estado**. Si el analista quiere mover al candidato, lo hace explícitamente con `POST /estado`. Así una corrección a 1–2 nunca saca a alguien de `reserva` sin una decisión humana explícita.
+
+### 5.5 No se borran candidatos; se anonimizan
+
+- La API **no ofrece `DELETE`** de candidatos, calificaciones ni estados. Los triggers de la base lo bloquean (también por `cascade`).
+- **Derecho de supresión (Ley 1581, art. 8):** si un titular pide eliminar sus datos, se usa `POST /api/admin/candidatos/{id}/anonimizar` (solo rol `lider`). Reemplaza nombre, correo y celular por valores anónimos, borra el PDF de Drive y registra el evento. El historial queda, pero sin datos personales. Implementado como función SQL `anonimizar_candidato` (migración `0002`).
+
+### 5.6 Postulaciones por correo
+
+- `asignar` crea un candidato nuevo con `canal = correo`, mueve el PDF a la carpeta de la vacante, enlaza `correos_sin_asignar.asignado_a` con el candidato creado y dispara la calificación (regla 5.3).
+- **Autorización de datos:** el candidato que envía su HV por correo no marcó una casilla. Se registra `autorizacion_version = "correo-1.0"`, entendida como autorización por conducta inequívoca, **siempre que la publicación de la vacante incluya el aviso de privacidad** [VERIFICAR con asesoría legal]. Además, el sistema le responde con un correo que enlaza la política de datos.
+
+### 5.7 Modelos Pydantic separados
+
+Mismo concepto, formas distintas según la audiencia:
+
+| Modelo | Uso | Campos |
+|---|---|---|
+| `CriterioPublico` | `GET /api/vacantes/{slug}` | `habilidad` (nombre), `obligatoria` |
+| `CriterioAdmin` | `POST/PATCH /api/admin/vacantes` | `habilidad_id`, `obligatoria`, `peso` |
+
+Regla general: los modelos públicos nunca exponen IDs internos de habilidades, pesos ni datos de candidatos.
+
 ## Pendientes [POR CONFIRMAR]
 
-- Tamaño máximo del PDF.
+- Tamaño máximo del PDF (mientras tanto, `MAX_PDF_MB=5` en `.env`).
 - Frecuencia del job de correo.
 - Formato del código de vacante en el asunto del correo (ej. `[GSC-0425]`).
 - Correos de gerencia para el reporte.
