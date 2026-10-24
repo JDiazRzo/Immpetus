@@ -1,14 +1,16 @@
 # Contrato de la API · Sistema de selección Immpetus
 
-Versión 0.2 · Agrega la sección 5 (reglas de negocio) con las decisiones de la revisión de backend.
+Versión 0.3 · Agrega la autenticación con Google (sección 1.5) y cambia la sesión del centro de mando a cookie httpOnly.
+v0.2 · Agrega la sección 5 (reglas de negocio) con las decisiones de la revisión de backend.
 Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend y backend.
 
 ## Convenciones
 
-- Base: `/api` (pública) y `/api/admin` (requiere sesión).
+- Base: `/api` (pública), `/api/auth` (inicio y cierre de sesión) y `/api/admin` (requiere sesión).
 - JSON en `snake_case`. Fechas en ISO 8601 UTC (`2026-10-24T15:30:00Z`).
 - IDs: UUID.
-- Autenticación admin: header `Authorization: Bearer <token de Google>`. El backend valida que el correo sea del dominio de Immpetus y que exista en `usuarios`.
+- Autenticación admin: cookie httpOnly `immpetus_sesion` (Secure, SameSite=Lax, 8 h), creada por `POST /api/auth/google` (sección 1.5). Todo `/api/admin/*` responde `401 UNAUTHENTICATED` sin cookie válida y `403 FORBIDDEN` si el usuario está inactivo o no tiene rol. No hay login con contraseña.
+- El frontend llama a `/api/*` a través de un rewrite de Next (mismo dominio que la web) y con `credentials: "include"`.
 - Paginación: `?page=1&page_size=20` → respuesta `{ "items": [...], "total": 42, "page": 1, "page_size": 20 }`.
 - Errores, siempre con esta forma:
 
@@ -19,8 +21,8 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 | HTTP | `code` | Cuándo |
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Datos inválidos |
-| 401 | `UNAUTHENTICATED` | Sin sesión o token vencido |
-| 403 | `FORBIDDEN` | Cuenta fuera del dominio o sin rol |
+| 401 | `UNAUTHENTICATED` | Sin sesión, sesión vencida o token de Google inválido |
+| 403 | `FORBIDDEN` | Cuenta fuera del dominio, no registrada, inactiva o sin rol |
 | 404 | `NOT_FOUND` | Recurso no existe |
 | 409 | `CONFLICT` | Transición de estado no permitida |
 | 413 | `FILE_TOO_LARGE` | PDF supera el límite |
@@ -109,6 +111,39 @@ El backend guarda el PDF en Drive y deja el candidato en `nuevo`. La calificaci�
 
 ---
 
+## 1.5 Autenticación (`/api/auth`)
+
+Solo Google. No existe registro ni login con contraseña. Los usuarios del centro de mando los crea el rol `lider` en la tabla `usuarios`.
+
+### `POST /api/auth/google`
+```json
+{ "id_token": "token que entrega Google Identity Services en el navegador" }
+```
+
+El backend:
+1. Verifica el `id_token` con la librería `google-auth` (firma de Google y `aud` = `GOOGLE_OAUTH_CLIENT_ID`).
+2. Exige `email_verified = true` y `hd` = `ALLOWED_EMAIL_DOMAIN` (`immpetus.co`).
+3. Busca el correo en `usuarios` con `activo = true`.
+4. Crea la cookie `immpetus_sesion` firmada con `SESSION_SECRET` (httpOnly, Secure, SameSite=Lax, 8 h).
+
+Respuesta `200`: igual a `GET /api/admin/me`.
+
+| HTTP | `code` | Cuándo | `message` |
+|---|---|---|---|
+| 401 | `UNAUTHENTICATED` | Token inválido o vencido | "No pudimos verificar tu cuenta de Google. Intenta de nuevo." |
+| 403 | `FORBIDDEN` | Dominio distinto a `@immpetus.co` | "Solo pueden entrar cuentas @immpetus.co." |
+| 403 | `FORBIDDEN` | Correo no registrado o inactivo | "Tu cuenta no está registrada en el centro de mando. Pide acceso al líder de selección." |
+
+### `POST /api/auth/logout`
+Borra la cookie. Respuesta `204`, aunque no haya sesión.
+
+**Notas**
+- El `proxy.ts` del frontend solo revisa que la cookie exista para redirigir a `/admin/login`; la validación real la hace el backend en cada petición a `/api/admin/*` (dependencia `usuario_actual`).
+- Si cualquier llamada del admin responde `401`, el frontend redirige a `/admin/login?next=<ruta>`.
+- En desarrollo local (frontend `localhost:3000`, backend `localhost:8000`) el rewrite de Next mantiene el mismo origen; no se necesita CORS con credenciales.
+
+---
+
 ## 2. Endpoints del centro de mando (`/api/admin`)
 
 ### `GET /api/admin/me`
@@ -179,7 +214,7 @@ Respuesta de `/resumen`:
 ```json
 { "estado": "no_apto", "observacion": "No cumple experiencia mínima" }
 ```
-Devuelve el candidato actualizado. Transiciones no permitidas → `409 CONFLICT`. Cada cambio crea una fila en `estados` con el usuario y la fecha (inmodificable).
+Devuelve el candidato actualizado. Transiciones no permitidas → `409 CONFLICT`. Cada cambio crea una fila en `estados` con el usuario de la sesión y la fecha (inmodificable).
 
 `POST /api/admin/candidatos/{id}/calificacion` (corregir nota)
 ```json
@@ -243,7 +278,7 @@ Salida esperada de `calificar_hv` (validar con Pydantic):
 }
 ```
 
-**Job de correo** (Cloud Scheduler cada [POR CONFIRMAR] min): `POST /internal/jobs/ingesta-correo` con token interno.
+**Job de correo** (Cloud Scheduler cada [POR CONFIRMAR] min): `POST /internal/jobs/ingesta-correo` con header `X-Job-Token: <INTERNAL_JOB_TOKEN>` (no usa la cookie de sesión).
 Flujo: leer correos → identificar la vacante por código en el asunto → si no hay código, a `correos-sin-asignar` → guardar en Drive → crear candidato (`canal = "correo"`) → calificar.
 
 **Mapeo nota → estado (lo aplica el backend):**
@@ -258,7 +293,7 @@ Flujo: leer correos → identificar la vacante por código en el asunto → si n
 
 ## 4. Datos de prueba (mientras no hay backend)
 
-El frontend usa `mocks/` con este mismo formato. Backend e integraciones deben devolver exactamente estas formas.
+El frontend usa `mocks/` con este mismo formato (`NEXT_PUBLIC_USE_MOCKS=true`), incluido un login simulado. Backend e integraciones deben devolver exactamente estas formas. Se conecta endpoint por endpoint.
 
 ---
 
@@ -266,7 +301,7 @@ El frontend usa `mocks/` con este mismo formato. Backend e integraciones deben d
 
 ### 5.1 Transiciones de estado
 
-Las únicas transiciones válidas. Cualquier otra → `409 CONFLICT`. Todas las que se hacen desde `/api/admin` quedan registradas con `validado_por` (usuario autenticado).
+Las únicas transiciones válidas. Cualquier otra → `409 CONFLICT`. Todas las que se hacen desde `/api/admin` quedan registradas con `validado_por` (usuario de la sesión).
 
 | Desde \ Hacia | `entrevista` | `reserva` | `por_validar` | `no_apto` | `contratado` |
 |---|---|---|---|---|---|
@@ -336,3 +371,4 @@ Regla general: los modelos públicos nunca exponen IDs internos de habilidades, 
 - Frecuencia del job de correo.
 - Formato del código de vacante en el asunto del correo (ej. `[GSC-0425]`).
 - Correos de gerencia para el reporte.
+- Si algún usuario del centro de mando (p. ej. gerencia) no tiene cuenta `@immpetus.co`: se agrega como excepción en `usuarios`, sin crear login con contraseña.

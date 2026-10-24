@@ -23,18 +23,20 @@ Proyecto académico (Gestión de Proyectos, Universidad EAN) con cliente real. E
 4. **Nada de secretos en el código.** Claves en `.env` (nunca se suben). Ver `.env.example`.
 5. **La matriz de calificación no usa atributos sensibles** (edad, sexo, estado civil, religión, etnia, discapacidad, orientación). Si la IA los detecta, se ignoran.
 6. **El contrato de la API manda.** `docs/CONTRATO_API.md` es la fuente de verdad entre frontend y backend. Cambiarlo requiere PR aprobado por ambos.
+7. **La base de datos es PostgreSQL estándar.** Acceso solo por `DATABASE_URL` con SQLAlchemy; no usar el cliente, Auth ni Storage de Supabase. Cambios al esquema solo con `npx supabase migration new`, nunca editando migraciones existentes ni desde el panel.
+8. **El login es solo con Google.** No hay registro ni contraseñas propias. El backend valida el `id_token` de Google, exige el dominio `@immpetus.co` y que el correo exista en `usuarios` con `activo = true`, y crea una cookie httpOnly `immpetus_sesion`. El `proxy.ts` del frontend solo redirige; quien protege de verdad es el backend (`401` si no hay sesión válida).
 
 ## Stack
 
-| Capa                     | Tecnología                                         | Carpeta                      |
-| ------------------------ | -------------------------------------------------- | ---------------------------- |
-| Frontend                 | Next.js (App Router) + TypeScript + Tailwind       | `frontend/`                  |
-| Backend                  | FastAPI (Python 3.12) + Pydantic                   | `backend/`                   |
-| Integraciones e IA       | Python: Gmail API, Drive API, Gemini API           | `backend/app/integraciones/` |
-| Base de datos            | PostgreSQL en Supabase (región São Paulo), con RLS | `supabase/migrations/`       |
-| Archivos                 | Google Drive (carpeta por vacante)                 | —                            |
-| Auth del centro de mando | Google OAuth restringido al dominio de Immpetus    | —                            |
-| Despliegue               | Frontend en Vercel · Backend en Google Cloud Run   | —                            |
+| Capa                     | Tecnología                                                                 | Carpeta                      |
+| ------------------------ | -------------------------------------------------------------------------- | ---------------------------- |
+| Frontend                 | Next.js 16 (App Router) + TypeScript + Tailwind v4                         | `frontend/`                  |
+| Backend                  | FastAPI (Python 3.12) + Pydantic + SQLAlchemy                              | `backend/`                   |
+| Integraciones e IA       | Python: Gmail API, Drive API, Gemini API (cuenta de servicio)              | `backend/app/integraciones/` |
+| Base de datos            | PostgreSQL en Supabase (región São Paulo), con RLS                         | `supabase/migrations/`       |
+| Archivos                 | Google Drive (carpeta por vacante)                                         | —                            |
+| Auth del centro de mando | Solo Google (dominio `@immpetus.co`) + cookie httpOnly creada por backend  | —                            |
+| Despliegue               | Frontend en Vercel · Backend en Google Cloud Run                           | —                            |
 
 ## Estructura del repositorio
 
@@ -46,12 +48,16 @@ Proyecto académico (Gestión de Proyectos, Universidad EAN) con cliente real. E
 │   └── SPRINTS.md           ← plan de trabajo por sprint y rol
 ├── supabase/migrations/     ← esquema de la base de datos (SQL)
 ├── frontend/                ← Next.js
-│   └── src/mocks/           ← datos de prueba con el formato del contrato
+│   └── src/
+│       ├── app/admin/(panel)/  ← páginas del centro de mando
+│       ├── app/admin/login/    ← login con Google
+│       ├── proxy.ts            ← redirige a /admin/login si no hay cookie
+│       └── mocks/              ← datos de prueba (se borran al conectar el backend)
 └── backend/
     └── app/
-        ├── api/             ← routers FastAPI (públicos y admin)
+        ├── api/             ← routers FastAPI (auth, públicos y admin)
         ├── models/          ← esquemas Pydantic (iguales al contrato)
-        ├── services/        ← lógica de negocio (estados, reglas)
+        ├── services/        ← lógica de negocio (estados, reglas, sesión)
         └── integraciones/   ← gmail.py, drive.py, ia.py
 ```
 
@@ -81,10 +87,12 @@ Si tu tarea toca la carpeta de otro rol, avísale en el PR.
 - TypeScript estricto, sin `any`.
 - Componentes en `src/components`, páginas en `src/app`.
 - Tipos de la API en `src/types/api.ts`, copiados del contrato.
-- Mientras el backend no esté listo, leer de `src/mocks/`. La URL base va en `NEXT_PUBLIC_API_URL`.
+- Mientras el backend no esté listo, leer de `src/mocks/` (`NEXT_PUBLIC_USE_MOCKS=true`). Se conecta endpoint por endpoint, conservando las firmas de `lib/api.ts` y `lib/admin-api.ts`.
+- Las llamadas a `/api/*` pasan por un rewrite de Next hacia el backend (mismo dominio, para que la cookie funcione), siempre con `credentials: "include"`. La URL del backend va en `NEXT_PUBLIC_API_URL`.
+- Si una llamada del admin responde `401`, redirigir a `/admin/login`.
 - Accesibilidad: `<button>`, `<label>`, foco visible, contraste AA.
 - Estilo visual: usar el skill `immpetus-frontend` si está disponible.
-- La versión de Next.js es 16: leer `frontend/AGENTS.md` y la documentación en `node_modules/next/dist/docs/` antes de usar APIs que no conozcas.
+- La versión de Next.js es 16: leer `frontend/AGENTS.md` y la documentación en `node_modules/next/dist/docs/` antes de usar APIs que no conozcas (por ejemplo, `middleware` ahora se llama `proxy`).
 
 **Backend / integraciones**
 
@@ -93,6 +101,7 @@ Si tu tarea toca la carpeta de otro rol, avísale en el PR.
 - La lógica de estados vive en `services/estados.py` y es la única que puede cambiar un estado.
 - Las integraciones no deciden estados: devuelven datos y el backend aplica las reglas.
 - Funciones de integración puras y probables con datos falsos (sin llamar a Google en los tests).
+- Sesión: verificar el `id_token` con la librería `google-auth` (no a mano), firmar la cookie con `SESSION_SECRET`, y una dependencia de FastAPI (`usuario_actual`) que protege todo `/api/admin/*`.
 - `ruff` para formato y lint (`uv run ruff check .`).
 - Dependencias con `uv add`; se instalan con `uv sync`.
 
@@ -110,6 +119,6 @@ Si tu tarea toca la carpeta de otro rol, avísale en el PR.
 ## Antes de entregar cualquier tarea
 
 1. ¿Cumple el contrato de la API (nombres y formas exactas)?
-2. ¿Respeta las 6 reglas de arriba?
+2. ¿Respeta las 8 reglas de arriba?
 3. ¿Hay algún secreto, HV real o dato personal en el código o en los logs?
 4. ¿Se probó? (al menos manualmente, y con test si es backend)
