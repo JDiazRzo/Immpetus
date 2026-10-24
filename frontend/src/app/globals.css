@@ -1,26 +1,47 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Tokens de marca (ver skill immpetus-frontend). Colores provisionales hasta confirmar la paleta de Immpetus. */
+@theme {
+  --color-ink: #1e2154;
+  --color-ink-soft: #4b4f72;
+  --color-paper: #f7f8fb;
+  --color-surface: #ffffff;
+  --color-line: #dcdfea;
+  --color-line-strong: #c9cdde;
+  --color-action: #3a3fd1;
+  --color-marker: #ffd84d;
+  --color-ok: #157a4a;
+  --color-reserve: #2f5da8;
+  --color-review: #a9470f;
+  --color-on-ink: #d5d8ec;
+
+  --font-display: var(--font-bricolage), system-ui, sans-serif;
+  --font-sans: var(--font-public-sans), system-ui, sans-serif;
+
+  --radius-chip: 6px;
+  --radius-panel: 10px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    scroll-behavior: smooth;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-action);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
 }
