@@ -38,7 +38,10 @@ def login_google(
 
     dominio = settings.allowed_email_domain.lower()
     correo = str(claims.get("email", "")).strip().lower()
-    if str(claims.get("hd", "")).lower() != dominio or not correo.endswith(f"@{dominio}"):
+    hd = str(claims.get("hd", "")).lower()
+
+    # Workspace (immpetus.co) trae 'hd'; Gmail personal no. Si viene, también debe coincidir.
+    if not correo.endswith(f"@{dominio}") or (hd and hd != dominio):
         raise AppError(403, "FORBIDDEN", f"Solo pueden entrar cuentas @{dominio}.")
 
     usuario = db.scalar(
