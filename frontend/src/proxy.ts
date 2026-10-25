@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 // Solo revisa que exista la cookie; quien valida la sesión de verdad es el backend (401 → login).
-const COOKIE_SESION = "immpetus_sesion";
+import { COOKIE_SESION } from "@/lib/sesion";
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
