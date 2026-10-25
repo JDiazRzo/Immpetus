@@ -30,12 +30,42 @@ def estado_inicial_por_nota(nota: int) -> str:
     return "reserva" if nota == 3 else "por_validar"
 
 
-def registrar_estado_inicial(db: Session, candidato: Candidato, estado: str) -> None:
-    """Lo usa el sistema (sin usuario) para el primer estado. Nunca no_apto/contratado."""
+def registrar_estado_inicial(
+    db: Session,
+    candidato: Candidato,
+    estado: str,
+    *,
+    usuario_id: uuid.UUID | None = None,
+    observacion: str | None = None,
+) -> None:
+    """Primer estado de un candidato. Nunca no_apto/entrevista/contratado."""
     if estado in {"no_apto", "contratado", "entrevista"}:
         raise AppError(409, "CONFLICT", "El sistema no puede asignar ese estado.")
     candidato.estado = estado
-    db.add(Estado(id=uuid.uuid4(), candidato_id=candidato.id, estado=estado))
+    db.add(
+        Estado(
+            id=uuid.uuid4(),
+            candidato_id=candidato.id,
+            estado=estado,
+            validado_por=usuario_id,
+            observacion=observacion,
+        )
+    )
+
+
+def registrar_evento(
+    db: Session, candidato: Candidato, usuario_id: uuid.UUID, observacion: str
+) -> None:
+    """Deja constancia en el historial SIN cambiar el estado (p. ej. anonimización)."""
+    db.add(
+        Estado(
+            id=uuid.uuid4(),
+            candidato_id=candidato.id,
+            estado=candidato.estado,
+            validado_por=usuario_id,
+            observacion=observacion,
+        )
+    )
 
 
 def cambiar_estado(

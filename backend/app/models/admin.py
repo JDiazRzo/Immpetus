@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.common import EstadoCandidato, Modalidad
 
@@ -166,3 +166,23 @@ class HabilidadOut(BaseModel):
     id: UUID
     nombre: str
     categoria: str
+
+
+class AsignarVacante(BaseModel):
+    vacante_id: UUID
+
+
+class CorreoSinAsignarOut(BaseModel):
+    id: UUID
+    remitente: str
+    asunto: str | None
+    archivo_nombre: str
+    recibido_en: datetime
+
+
+class ReporteInput(BaseModel):
+    destinatarios: list[EmailStr] = Field(min_length=1, max_length=10)
+
+
+class ReporteEnviado(BaseModel):
+    enviado: bool

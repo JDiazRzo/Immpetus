@@ -13,7 +13,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import get_guardar_hv, get_verificador_google
+from app.api.deps import (
+    get_borrar_hv,
+    get_enviar_reporte,
+    get_guardar_hv,
+    get_mover_hv,
+    get_verificador_google,
+)
 from app.db import get_db
 from app.main import app
 from app.models.postulaciones import DriveFile
@@ -127,3 +133,38 @@ def login(client, usuarios):
         return r.json()
 
     return _login
+
+
+@pytest.fixture
+def integraciones():
+    """Registro de lo que el backend le pide a Drive/Gmail (nunca se llama a Google)."""
+    return {
+        "movidos": [],
+        "borrados": [],
+        "correos": [],
+        "falla_drive": False,
+        "falla_correo": False,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _dobles_integraciones(client, integraciones):
+    def mover(drive_file_id, vacante):
+        if integraciones["falla_drive"]:
+            raise RuntimeError("drive caído")
+        integraciones["movidos"].append((drive_file_id, vacante.codigo))
+        return DriveFile(id=drive_file_id, url=f"https://drive.invalid/{drive_file_id}")
+
+    def borrar(drive_file_id):
+        if integraciones["falla_drive"]:
+            raise RuntimeError("drive caído")
+        integraciones["borrados"].append(drive_file_id)
+
+    def enviar(destinatarios, html):
+        if integraciones["falla_correo"]:
+            raise RuntimeError("gmail caído")
+        integraciones["correos"].append((destinatarios, html))
+
+    app.dependency_overrides[get_mover_hv] = lambda: mover
+    app.dependency_overrides[get_borrar_hv] = lambda: borrar
+    app.dependency_overrides[get_enviar_reporte] = lambda: enviar

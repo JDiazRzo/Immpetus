@@ -1,6 +1,7 @@
 # Contrato de la API · Sistema de selección Immpetus
 
-Versión 0.3 · Agrega la autenticación con Google (sección 1.5) y cambia la sesión del centro de mando a cookie httpOnly.
+Versión 0.4 · Sprint 3: reserva, correos sin asignar, reporte y anonimización (secciones 3 y 5.8, códigos 502).
+v0.3 · Agrega la autenticación con Google (sección 1.5) y cambia la sesión del centro de mando a cookie httpOnly.
 v0.2 · Agrega la sección 5 (reglas de negocio) con las decisiones de la revisión de backend.
 Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend y backend.
 
@@ -26,6 +27,8 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 | 404 | `NOT_FOUND` | Recurso no existe |
 | 409 | `CONFLICT` | Transición de estado no permitida |
 | 413 | `FILE_TOO_LARGE` | PDF supera el límite |
+| 502 | `STORAGE_ERROR` | Falló Drive (guardar, mover o borrar el PDF) |
+| 502 | `EMAIL_ERROR` | Falló el envío del reporte por Gmail |
 
 ## Valores fijos (enums)
 
@@ -256,6 +259,12 @@ def guardar_hv(pdf_bytes: bytes, vacante: Vacante, nombre: str) -> DriveFile:
 def renombrar_hv(drive_file_id: str, nota: int, nombre: str, cargo: str) -> None:
     """Renombra a '[NOTA] - [NOMBRE] - [CARGO].pdf'."""
 
+def mover_hv(drive_file_id: str, vacante: Vacante) -> DriveFile:   # v0.4 (asignar correo)
+    """Mueve el PDF a Drive/<vacante.codigo>/ y devuelve id y url (pueden cambiar)."""
+
+def borrar_hv(drive_file_id: str) -> None:                          # v0.4 (anonimizar)
+    """Borra el PDF. Si ya no existe se considera éxito (el borrado debe ser reintentable)."""
+
 # integraciones/ia.py
 def calificar_hv(pdf_bytes: bytes, vacante: Vacante, catalogo_habilidades: list[str]) -> Calificacion:
     """Devuelve nota 1-5, resumen, matriz y habilidades detectadas.
@@ -266,6 +275,7 @@ def leer_postulaciones_nuevas() -> list[CorreoHV]:
     """Lee seleccion@ desde la última ejecución; devuelve adjuntos PDF + asunto + remitente."""
 
 def enviar_reporte(destinatarios: list[str], html: str) -> None: ...
+# El asunto del correo sale del <title> del html (el contrato no tiene parámetro `asunto`).
 ```
 
 Salida esperada de `calificar_hv` (validar con Pydantic):
@@ -364,6 +374,15 @@ Mismo concepto, formas distintas según la audiencia:
 | `CriterioAdmin` | `POST/PATCH /api/admin/vacantes` | `habilidad_id`, `obligatoria`, `peso` |
 
 Regla general: los modelos públicos nunca exponen IDs internos de habilidades, pesos ni datos de candidatos.
+
+### 5.8 Sprint 3 (decisiones)
+
+- **Listas paginadas.** `GET /api/admin/reserva` y `GET /api/admin/correos-sin-asignar` responden `{ items, total, page, page_size }`. `correos-sin-asignar` solo trae los pendientes e incluye `archivo_nombre` (columna nueva, migración `0003`; la llena el job de ingesta).
+- **Reserva · filtros.** `habilidad_id` repetido exige tener **todas** las habilidades; `cargo` busca dentro del cargo de la vacante de origen. Solo candidatos en `reserva` y no anonimizados.
+- **`POST /reserva/{candidato_id}/asociar`** → `201` con el candidato **nuevo**: se crea otra postulación del mismo titular en la vacante destino (debe estar activa, distinta de la original y sin postulación previa). Nace en `nuevo`, sin nota (la IA califica contra los criterios nuevos); el original sigue en `reserva`. Conserva la autorización original [VERIFICAR con asesoría legal que cubra otras vacantes].
+- **`POST /correos-sin-asignar/{id}/asignar`** → `201`. Nombre y correo salen del remitente (`Nombre <correo>`); si no hay nombre se usa la parte local del correo; `celular` queda vacío. `404` si ya fue asignado. La calificación con IA se dispara al integrarse `integraciones/ia.py`.
+- **`POST /candidatos/{id}/anonimizar`** (solo `lider`, `403` para otros roles). Anonimiza **todas** las postulaciones del mismo correo y sus correos sin asignar, borra el PDF en Drive **antes** (si falla: `502` y no se toca la base) y deja un evento en el historial sin datos personales. `409` si ya estaba anonimizado.
+- **`POST /vacantes/{id}/reporte`** → `202`. Solo acepta destinatarios del dominio `ALLOWED_EMAIL_DOMAIN`; el ranking excluye `no_apto` y anonimizados. Los roles `gerencia` consultan pero no envían.
 
 ## Pendientes [POR CONFIRMAR]
 

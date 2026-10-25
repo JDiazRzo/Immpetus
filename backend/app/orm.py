@@ -138,3 +138,20 @@ class CandidatoHabilidad(Base):
     candidato_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("candidatos.id"), primary_key=True)
     habilidad_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("habilidades.id"), primary_key=True)
     origen: Mapped[str] = mapped_column(_enum("origen_dato", ORIGENES), default="ia")
+
+
+class CorreoSinAsignar(Base):
+    """HV que llegó por correo y no se pudo asociar a una vacante (la llena el job de ingesta)."""
+
+    __tablename__ = "correos_sin_asignar"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    gmail_id: Mapped[str] = mapped_column(Text, unique=True)
+    remitente: Mapped[str] = mapped_column(Text)
+    asunto: Mapped[str | None] = mapped_column(Text)
+    archivo_nombre: Mapped[str | None] = mapped_column(Text)  # migración 0003
+    drive_file_id: Mapped[str | None] = mapped_column(Text)
+    recibido_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    asignado_a: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("candidatos.id"))
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )

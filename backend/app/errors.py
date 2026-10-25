@@ -31,7 +31,12 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
         err = exc.errors()[0]
-        campo = str(err["loc"][-1]) if err.get("loc") else None
+        nombres = [
+            str(x)
+            for x in err.get("loc", ())
+            if not isinstance(x, int) and x not in ("body", "query", "path", "form")
+        ]
+        campo = nombres[-1] if nombres else None  # en listas: el nombre del campo, no el índice
         return JSONResponse(
             _body("VALIDATION_ERROR", "Revisa los datos enviados.", campo), status_code=400
         )

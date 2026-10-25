@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = True  # en producción siempre true
     google_oauth_client_id: str = ""
     allowed_email_domain: str = "immpetus.co"
+    gmail_delegated_user: str = ""  # vacío = envío de correo simulado (solo desarrollo)
 
     @property
     def cors_origins_list(self) -> list[str]:
