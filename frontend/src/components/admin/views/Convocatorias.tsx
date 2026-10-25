@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { actualizarVacante, listarCandidatos, listarVacantesAdmin } from "@/lib/admin-api";
 import { useAdmin } from "@/lib/use-admin";
 import { Estado, Panel } from "../Panel";
@@ -11,13 +10,6 @@ import { PublishToggle } from "../PublishToggle";
 export function Convocatorias() {
   const vacantes = useAdmin(listarVacantesAdmin, []);
   const candidatos = useAdmin(() => listarCandidatos(), []);
-  const [ocupado, setOcupado] = useState<string | null>(null);
-
-  async function cambiar(id: string, activa: boolean) {
-    setOcupado(id);
-    await actualizarVacante(id, { activa });
-    setOcupado(null);
-  }
 
   const conteo = (id: string) => {
     const cs = candidatos.datos?.filter((c) => c.vacante_id === id) ?? [];
@@ -58,7 +50,7 @@ export function Convocatorias() {
                       {n.validar} por validar
                     </span>
                   )}
-                  <PublishToggle activa={v.activa} ocupado={ocupado === v.id} onCambiar={(a) => cambiar(v.id, a)} />
+                  <PublishToggle activa={v.activa} onCambiar={(activa) => actualizarVacante(v.id, { activa })} />
                 </li>
               );
             })}
