@@ -1,14 +1,23 @@
+import os
+
+os.environ.update(
+    SESSION_SECRET="x" * 40,
+    COOKIE_SECURE="false",
+    GOOGLE_OAUTH_CLIENT_ID="cliente-prueba",
+    ALLOWED_EMAIL_DOMAIN="immpetus.co",
+)
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import get_guardar_hv
+from app.api.deps import get_guardar_hv, get_verificador_google
 from app.db import get_db
 from app.main import app
 from app.models.postulaciones import DriveFile
-from app.orm import Base, Habilidad, Vacante, VacanteHabilidad
+from app.orm import Base, Habilidad, Usuario, Vacante, VacanteHabilidad
 
 
 @pytest.fixture
@@ -73,5 +82,48 @@ def client(db, subidas):
 
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_guardar_hv] = lambda: fake_drive
+
+    def fake_google(token: str) -> dict:
+        if token not in TOKENS:
+            raise ValueError("token inválido")
+        return TOKENS[token]
+
+    app.dependency_overrides[get_verificador_google] = lambda: fake_google
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+TOKENS = {
+    "tok-analista": {"email": "ana@immpetus.co", "hd": "immpetus.co", "email_verified": True},
+    "tok-lider": {"email": "lider@immpetus.co", "hd": "immpetus.co", "email_verified": True},
+    "tok-gerencia": {"email": "gerencia@immpetus.co", "hd": "immpetus.co", "email_verified": True},
+    "tok-inactivo": {"email": "baja@immpetus.co", "hd": "immpetus.co", "email_verified": True},
+    "tok-sinregistro": {"email": "nadie@immpetus.co", "hd": "immpetus.co", "email_verified": True},
+    "tok-gmail": {"email": "x@gmail.com", "email_verified": True},
+    "tok-noverificado": {"email": "ana@immpetus.co", "hd": "immpetus.co", "email_verified": False},
+}
+
+
+@pytest.fixture
+def usuarios(db: Session):
+    u = {
+        "analista": Usuario(correo="ana@immpetus.co", nombre="Ana Analista", rol="analista"),
+        "lider": Usuario(correo="lider@immpetus.co", nombre="Luis Líder", rol="lider"),
+        "gerencia": Usuario(correo="gerencia@immpetus.co", nombre="Gina Gerencia", rol="gerencia"),
+        "inactivo": Usuario(correo="baja@immpetus.co", nombre="Baja", rol="analista", activo=False),
+    }
+    db.add_all(u.values())
+    db.commit()
+    return u
+
+
+@pytest.fixture
+def login(client, usuarios):
+    """login('analista') inicia sesión y deja la cookie en el cliente."""
+
+    def _login(rol: str):
+        r = client.post("/api/auth/google", json={"id_token": f"tok-{rol}"})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    return _login

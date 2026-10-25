@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     max_pdf_mb: int = 5
     cors_origins: str = "http://localhost:3000"
     drive_root_folder_id: str = ""  # vacío = Drive simulado (solo desarrollo)
+    session_secret: str = ""  # mínimo 32 caracteres; genera uno con: openssl rand -hex 32
+    cookie_secure: bool = True  # en producción siempre true
+    google_oauth_client_id: str = ""
+    allowed_email_domain: str = "immpetus.co"
 
     @property
     def cors_origins_list(self) -> list[str]:

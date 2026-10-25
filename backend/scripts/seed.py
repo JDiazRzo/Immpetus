@@ -4,13 +4,14 @@ Uso:  uv run python -m scripts.seed      (idempotente: no duplica)
 Solo datos inventados. Nunca cargar HV reales.
 """
 
+import os
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_engine
-from app.orm import Habilidad, Vacante, VacanteHabilidad
+from app.orm import Habilidad, Usuario, Vacante, VacanteHabilidad
 
 RESP = ["[Responsabilidad]", "[Responsabilidad]", "[Responsabilidad]"]
 DESC = "[Propósito del cargo, equipo al que pertenece y principales retos.]"
@@ -81,6 +82,10 @@ VACANTES = [
 
 def main() -> None:
     with Session(get_engine()) as db:
+        # Para poder entrar al centro de mando en local: SEED_LIDER_CORREO=tu@immpetus.co
+        correo = os.environ.get("SEED_LIDER_CORREO", "").strip().lower()
+        if correo and not db.scalar(select(Usuario).where(Usuario.correo == correo)):
+            db.add(Usuario(correo=correo, nombre="Líder (semilla)", rol="lider", activo=True))
         for cod, slug, cargo, ciudad, mod, det, sal, urg, pub, crit in VACANTES:
             if db.scalar(select(Vacante).where(Vacante.slug == slug)):
                 continue

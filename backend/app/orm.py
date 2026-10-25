@@ -4,7 +4,7 @@ Los tipos tienen variante SQLite solo para poder correr los tests sin Postgres.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, SmallInteger, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -14,7 +14,12 @@ ESTADOS = ("nuevo", "entrevista", "reserva", "por_validar", "no_apto", "contrata
 MODALIDADES = ("presencial", "hibrido", "remoto")
 CANALES = ("web", "correo")
 ROLES = ("analista", "lider", "gerencia")
+ORIGENES = ("ia", "analista")
 CATEGORIAS = ("tecnica", "blanda", "idioma", "herramienta", "certificacion")
+
+
+def _ahora() -> datetime:
+    return datetime.now(UTC)
 
 
 def _enum(nombre: str, valores: tuple[str, ...]) -> Enum:
@@ -53,7 +58,10 @@ class Vacante(Base):
     urgente: Mapped[bool] = mapped_column(Boolean, default=False)
     activa: Mapped[bool] = mapped_column(Boolean, default=False)
     drive_folder_id: Mapped[str | None] = mapped_column(Text)
-    creada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    creada_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"))
+    creada_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
     publicada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -87,7 +95,10 @@ class Candidato(Base):
     autorizacion_datos: Mapped[bool] = mapped_column(Boolean)
     autorizacion_fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     autorizacion_version: Mapped[str] = mapped_column(Text)
-    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
+    anonimizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Estado(Base):
@@ -99,7 +110,31 @@ class Estado(Base):
     estado: Mapped[str] = mapped_column(_enum("estado_candidato", ESTADOS))
     validado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"))
     observacion: Mapped[str | None] = mapped_column(Text)
-    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    fecha: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
 
 
-__all__ = ["JSONB"]  # JSONB se usará en calificaciones.matriz (Sprint 2)
+class Calificacion(Base):
+    """Calificaciones (IA o corrección del analista): SOLO inserciones."""
+
+    __tablename__ = "calificaciones"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    candidato_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("candidatos.id"))
+    nota: Mapped[int] = mapped_column(SmallInteger)
+    resumen: Mapped[str | None] = mapped_column(Text)
+    matriz: Mapped[dict | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"))
+    origen: Mapped[str] = mapped_column(_enum("origen_dato", ORIGENES))
+    modelo_ia: Mapped[str | None] = mapped_column(Text)
+    motivo: Mapped[str | None] = mapped_column(Text)
+    usuario_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"))
+    fecha: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
+
+
+class CandidatoHabilidad(Base):
+    __tablename__ = "candidato_habilidades"
+    candidato_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("candidatos.id"), primary_key=True)
+    habilidad_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("habilidades.id"), primary_key=True)
+    origen: Mapped[str] = mapped_column(_enum("origen_dato", ORIGENES), default="ia")
