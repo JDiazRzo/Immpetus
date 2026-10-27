@@ -35,7 +35,10 @@ export type CriterioVacante = {
   obligatoria: boolean;
 };
 
-export type VacanteDetalle = Omit<VacanteResumen, "urgente" | "publicada_en"> & {
+export type VacanteDetalle = Omit<
+  VacanteResumen,
+  "urgente" | "publicada_en"
+> & {
   descripcion: string | null;
   responsabilidades: string[];
   criterios: CriterioVacante[];
@@ -83,7 +86,10 @@ export type VacanteAdmin = Omit<VacanteDetalle, "criterios"> & {
   criterios: CriterioAdmin[];
 };
 
-export type VacanteInput = Omit<VacanteAdmin, "id" | "slug" | "publicada_en" | "codigo">;
+export type VacanteInput = Omit<
+  VacanteAdmin,
+  "id" | "slug" | "publicada_en" | "codigo"
+>;
 
 export type ResumenVacante = {
   recibidas: number;
@@ -154,4 +160,32 @@ export type CorreoSinAsignar = {
   asunto: string | null;
   archivo_nombre: string;
   recibido_en: string;
+};
+
+// ---------- Contacto de empresas (contrato v0.4) ----------
+export const SERVICIOS_CONTACTO = [
+  {
+    valor: "adquisicion_talento",
+    etiqueta: "Adquisición de Talento — Reclutamiento",
+  },
+  { valor: "talento_bpo", etiqueta: "Talento BPO — Nómina y EOR" },
+  { valor: "gestion_estrategica", etiqueta: "Gestión Estratégica del Talento" },
+  {
+    valor: "formacion_liderazgo",
+    etiqueta: "Formación, Liderazgo y Alto Desempeño",
+  },
+  { valor: "procesos", etiqueta: "Diseño y Mejoramiento de Procesos" },
+  { valor: "otro", etiqueta: "Otro / Consulta general" },
+] as const;
+
+export type ServicioContacto = (typeof SERVICIOS_CONTACTO)[number]["valor"];
+
+export type ContactoInput = {
+  nombre: string;
+  empresa: string | null;
+  correo: string;
+  telefono: string | null;
+  servicio: ServicioContacto | null;
+  mensaje: string;
+  autorizacion_datos: true;
 };

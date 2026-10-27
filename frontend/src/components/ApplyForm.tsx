@@ -56,6 +56,7 @@ export function ApplyForm({ vacanteId }: { vacanteId: string }) {
 
     form.set("vacante_id", vacanteId);
     form.set("autorizacion_datos", "true");
+    form.set("autorizacion_futuras", form.get("autorizacion_futuras") === "on" ? "true" : "false");
     form.set("autorizacion_version", SITE.autorizacionVersion);
 
     setEstado({ tipo: "enviando" });
@@ -156,7 +157,7 @@ export function ApplyForm({ vacanteId }: { vacanteId: string }) {
             {...campo("autorizacion_datos")}
           />
           <label htmlFor={`${id}-autorizacion_datos`} className="text-sm leading-relaxed text-[#343861]">
-            Autorizo a Immpetus Soluciones a tratar mis datos personales para este y futuros procesos de selección.
+            Autorizo a Immpetus Soluciones a tratar mis datos personales para este proceso de selección.
             Entiendo que mi hoja de vida se analiza con apoyo de inteligencia artificial y que una persona revisa el
             resultado. Leí la{" "}
             <Link href="/politica-de-datos" className="font-semibold text-action underline underline-offset-2">
@@ -166,6 +167,19 @@ export function ApplyForm({ vacanteId }: { vacanteId: string }) {
           </label>
         </div>
         {mensajeError("autorizacion_datos")}
+      </div>
+
+      <div className="flex items-start gap-3">
+        <input
+          id={`${id}-autorizacion_futuras`}
+          name="autorizacion_futuras"
+          type="checkbox"
+          className="mt-0.5 size-5 shrink-0 accent-action"
+        />
+        <label htmlFor={`${id}-autorizacion_futuras`} className="text-sm leading-relaxed text-[#343861]">
+          <span className="font-semibold">Opcional:</span> guarden mi hoja de vida para considerarme en futuras
+          vacantes que se ajusten a mi perfil.
+        </label>
       </div>
 
       {estado.tipo === "error" && (

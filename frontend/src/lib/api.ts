@@ -5,6 +5,7 @@ import type {
   PostulacionCreada,
   VacanteDetalle,
   VacanteResumen,
+  ContactoInput,
 } from "@/types/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -63,5 +64,13 @@ export function enviarPostulacion(datos: FormData): Promise<PostulacionCreada> {
   return request<PostulacionCreada>("/api/postulaciones", {
     method: "POST",
     body: datos,
+  });
+}
+
+export async function enviarContacto(datos: ContactoInput): Promise<void> {
+  await request<{ id: string }>("/api/contacto", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(datos),
   });
 }
