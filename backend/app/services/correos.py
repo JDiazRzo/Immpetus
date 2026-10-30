@@ -57,11 +57,7 @@ def asignar(
         raise validation_error("El remitente no tiene un correo válido.", "remitente")
     nombre = nombre.strip() or correo.split("@")[0]
 
-    if db.scalar(
-        select(Candidato.id).where(
-            Candidato.vacante_id == vacante.id, func.lower(Candidato.correo) == correo
-        )
-    ):
+    if cand.existe_postulacion_activa(db, vacante.id, correo):
         raise AppError(409, "CONFLICT", "Esa persona ya está postulada a esa vacante.")
 
     try:
