@@ -5,16 +5,18 @@ os.environ.update(
     COOKIE_SECURE="false",
     GOOGLE_OAUTH_CLIENT_ID="cliente-prueba",
     ALLOWED_EMAIL_DOMAIN="immpetus.co",
+    RATE_LIMIT_ENABLED="false",  # los tests de límites lo activan a propósito
 )
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import (
     get_borrar_hv,
+    get_enviar_aviso_contacto,
     get_enviar_reporte,
     get_guardar_hv,
     get_mover_hv,
@@ -28,12 +30,26 @@ from app.orm import Base, Habilidad, Usuario, Vacante, VacanteHabilidad
 
 @pytest.fixture
 def db():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    """SQLite en memoria por defecto. Con TEST_DATABASE_URL corre contra Postgres real.
+
+    En Postgres el esquema sale de supabase/migrations (se aplican antes) y se vacía cada prueba:
+        TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:54322/postgres \\
+            uv run pytest
+    """
+    url = os.environ.get("TEST_DATABASE_URL")
+    if url:
+        engine = create_engine(url)
+        tablas = ", ".join(t.name for t in Base.metadata.sorted_tables)
+        with engine.begin() as conn:
+            conn.execute(text(f"truncate {tablas} restart identity cascade"))
+    else:
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        Base.metadata.create_all(engine)
     with sessionmaker(bind=engine, expire_on_commit=False)() as s:
         yield s
+    engine.dispose()
 
 
 @pytest.fixture
@@ -142,8 +158,10 @@ def integraciones():
         "movidos": [],
         "borrados": [],
         "correos": [],
+        "avisos": [],
         "falla_drive": False,
         "falla_correo": False,
+        "falla_aviso": False,
     }
 
 
@@ -165,6 +183,12 @@ def _dobles_integraciones(client, integraciones):
             raise RuntimeError("gmail caído")
         integraciones["correos"].append((destinatarios, html))
 
+    def aviso(datos):
+        if integraciones["falla_aviso"]:
+            raise RuntimeError("gmail caído")
+        integraciones["avisos"].append(datos)
+
+    app.dependency_overrides[get_enviar_aviso_contacto] = lambda: aviso
     app.dependency_overrides[get_mover_hv] = lambda: mover
     app.dependency_overrides[get_borrar_hv] = lambda: borrar
     app.dependency_overrides[get_enviar_reporte] = lambda: enviar
