@@ -15,6 +15,14 @@ MODALIDADES = ("presencial", "hibrido", "remoto")
 CANALES = ("web", "correo")
 ROLES = ("analista", "lider", "gerencia")
 ORIGENES = ("ia", "analista")
+SERVICIOS = (
+    "adquisicion_talento",
+    "talento_bpo",
+    "gestion_estrategica",
+    "formacion_liderazgo",
+    "procesos",
+    "otro",
+)
 CATEGORIAS = ("tecnica", "blanda", "idioma", "herramienta", "certificacion")
 
 
@@ -99,6 +107,9 @@ class Candidato(Base):
         DateTime(timezone=True), default=_ahora, server_default=func.now()
     )
     anonimizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Autorización APARTE y opcional para conservar la HV en la Reserva (migración 0004).
+    acepta_futuras: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    acepta_futuras_fecha: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Estado(Base):
@@ -152,6 +163,27 @@ class CorreoSinAsignar(Base):
     drive_file_id: Mapped[str | None] = mapped_column(Text)
     recibido_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     asignado_a: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("candidatos.id"))
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
+
+
+class Contacto(Base):
+    """Formulario "Hablemos de su equipo" de la landing (migración 0005)."""
+
+    __tablename__ = "contactos"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    nombre: Mapped[str] = mapped_column(Text)
+    empresa: Mapped[str | None] = mapped_column(Text)
+    correo: Mapped[str] = mapped_column(Text)
+    telefono: Mapped[str | None] = mapped_column(Text)
+    servicio: Mapped[str | None] = mapped_column(_enum("servicio_contacto", SERVICIOS))
+    mensaje: Mapped[str] = mapped_column(Text)
+    autorizacion_datos: Mapped[bool] = mapped_column(Boolean)
+    autorizacion_fecha: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
+    atendido: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora, server_default=func.now()
     )

@@ -59,6 +59,10 @@ def anonimizar_titular(
         p.correo = f"anonimizado+{p.id}@invalid.local"
         p.celular = None
         p.drive_file_id = p.drive_url = p.archivo_nombre = None
+        p.acepta_futuras, p.acepta_futuras_fecha = (
+            False,
+            None,
+        )  # también se retira esta autorización
         p.anonimizado_en = ahora
         estados.registrar_evento(db, p, lider.id, MOTIVO)
     for m in correos:

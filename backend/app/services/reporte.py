@@ -28,7 +28,7 @@ def validar_destinatarios(destinatarios: list[str]) -> list[str]:
 def construir_html(db: Session, vacante_id: uuid.UUID) -> str:
     v = vac.obtener(db, vacante_id)
     r = cand.resumen(db, vacante_id)
-    items, _ = cand.listar_por_vacante(db, vacante_id, None, "nota_desc", 1, 200)
+    items, _ = cand.listar(db, vacante_id=vacante_id, orden="nota_desc", page_size=200)
     top = [c for c in items if c.estado != "no_apto" and c.nombre != "Titular anonimizado"][:TOP]
 
     def revision(c) -> str:  # noqa: ANN001

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.common import EstadoCandidato, Modalidad
 
@@ -127,6 +127,7 @@ class CandidatoLista(BaseModel):
     nota_validada: bool
     validada_por: str | None
     estado: EstadoCandidato
+    acepta_futuras: bool
     habilidades: list[HabilidadCandidato]
     creado_en: datetime
 
@@ -186,3 +187,21 @@ class ReporteInput(BaseModel):
 
 class ReporteEnviado(BaseModel):
     enviado: bool
+
+
+class ContactoAdmin(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    nombre: str
+    empresa: str | None
+    correo: str
+    telefono: str | None
+    servicio: str | None
+    mensaje: str
+    atendido: bool
+    creado_en: datetime
+
+
+class ContactoUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    atendido: bool

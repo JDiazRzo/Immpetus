@@ -6,7 +6,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import AppError, not_found
@@ -134,6 +134,7 @@ def armar_listas(db: Session, candidatos: list[Candidato]) -> list[CandidatoList
                 nota_validada=validada,
                 validada_por=por,
                 estado=c.estado,
+                acepta_futuras=c.acepta_futuras,
                 habilidades=habs[c.id],
                 creado_en=c.creado_en,
             )
@@ -141,25 +142,70 @@ def armar_listas(db: Session, candidatos: list[Candidato]) -> list[CandidatoList
     return salida
 
 
-def listar_por_vacante(
-    db: Session, vacante_id: uuid.UUID, estado: str | None, orden: str, page: int, page_size: int
-) -> tuple[list[CandidatoLista], int]:
-    if db.get(Vacante, vacante_id) is None:
-        raise not_found("La vacante no existe.")
-    consulta = select(Candidato).where(Candidato.vacante_id == vacante_id)
-    if estado:
-        consulta = consulta.where(Candidato.estado == estado)
-    todos = armar_listas(db, list(db.scalars(consulta)))  # unos cientos por vacante: se ordena aquí
+def existe_postulacion_activa(db: Session, vacante_id: uuid.UUID, correo: str) -> bool:
+    """¿Ese correo ya tiene una postulación activa a la vacante? (409 en los 3 caminos de ingreso)
 
-    reciente = lambda x: -_utc(x.creado_en).timestamp()  # noqa: E731
-    if orden == "nota_desc":
-        todos.sort(key=lambda x: (x.nota is None, -(x.nota or 0), reciente(x)))
-    elif orden == "nota_asc":
-        todos.sort(key=lambda x: (x.nota is None, x.nota or 0, reciente(x)))
-    else:
-        todos.sort(key=reciente)
-    inicio = (page - 1) * page_size
-    return todos[inicio : inicio + page_size], len(todos)
+    Activa = no anonimizada y no descartada: quien fue `no_apto` puede volver a postularse.
+    """
+    return (
+        db.scalar(
+            select(Candidato.id).where(
+                Candidato.vacante_id == vacante_id,
+                func.lower(Candidato.correo) == correo.strip().lower(),
+                Candidato.anonimizado_en.is_(None),
+                Candidato.estado != "no_apto",
+            )
+        )
+        is not None
+    )
+
+
+def _ultima_nota():
+    """Nota vigente (la última calificación) como subconsulta, para ordenar y paginar en SQL."""
+    return (
+        select(Calificacion.nota)
+        .where(Calificacion.candidato_id == Candidato.id)
+        .order_by(Calificacion.fecha.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def listar(
+    db: Session,
+    *,
+    vacante_id: uuid.UUID | None = None,
+    estado: str | None = None,
+    orden: str = "reciente",
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[CandidatoLista], int]:
+    """Candidatos de una vacante o de TODAS (vacante_id=None); filtra, ordena y pagina en SQL.
+
+    Solo se cargan y se arman los de la página pedida: no depende de cuántos candidatos haya.
+    """
+    if vacante_id is not None and db.get(Vacante, vacante_id) is None:
+        raise not_found("La vacante no existe.")
+    filtros = []
+    if vacante_id is not None:
+        filtros.append(Candidato.vacante_id == vacante_id)
+    if estado:
+        filtros.append(Candidato.estado == estado)
+
+    total = db.scalar(select(func.count()).select_from(Candidato).where(*filtros)) or 0
+    nota = _ultima_nota()
+    criterio = {
+        "nota_desc": [nota.desc().nulls_last(), Candidato.creado_en.desc()],
+        "nota_asc": [nota.asc().nulls_last(), Candidato.creado_en.desc()],
+    }.get(orden, [Candidato.creado_en.desc()])
+    filas = db.scalars(
+        select(Candidato)
+        .where(*filtros)
+        .order_by(*criterio, Candidato.id)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    return armar_listas(db, list(filas)), total
 
 
 def resumen(db: Session, vacante_id: uuid.UUID) -> ResumenVacante:

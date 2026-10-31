@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from app.orm import Calificacion, Candidato, CorreoSinAsignar, Estado
+from tests.helpers import validador
 
 T0 = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 
@@ -25,7 +26,7 @@ def _cand(
     )
     db.add(c)
     db.flush()
-    db.add(Estado(candidato_id=c.id, estado=estado))
+    db.add(Estado(candidato_id=c.id, validado_por=validador(db, estado), estado=estado))
     if nota:
         db.add(
             Calificacion(

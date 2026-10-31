@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from app.orm import Candidato, CandidatoHabilidad, Estado, Habilidad
+from tests.helpers import validador
 
 T0 = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 
 
-def _cand(db, vacante, nombre="Cand", estado="reserva", correo=None, **extra):
+def _cand(db, vacante, nombre="Cand", estado="reserva", correo=None, futuras=True, **extra):
     c = Candidato(
         vacante_id=vacante.id,
         nombre=nombre,
@@ -22,11 +23,13 @@ def _cand(db, vacante, nombre="Cand", estado="reserva", correo=None, **extra):
         drive_file_id="f-1",
         drive_url="https://drive.invalid/f-1",
         archivo_nombre="3 - X.pdf",
+        acepta_futuras=futuras,
+        acepta_futuras_fecha=T0 if futuras else None,
         **extra,
     )
     db.add(c)
     db.flush()
-    db.add(Estado(candidato_id=c.id, estado=estado))
+    db.add(Estado(candidato_id=c.id, validado_por=validador(db, estado), estado=estado))
     db.commit()
     return c
 
