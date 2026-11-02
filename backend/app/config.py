@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     cookie_secure: bool = True  # en producción siempre true
     google_oauth_client_id: str = ""
     allowed_email_domain: str = "immpetus.co"
+    # Límite de peticiones (slowapi). Detrás de proxies (Vercel/Next/Cloud Run) la IP real viene en
+    # X-Forwarded-For: TRUSTED_PROXY_HOPS = cuántos proxies PROPIOS hay delante (0 = ninguno).
+    rate_limit_enabled: bool = True
+    rate_limit_storage_uri: str = "memory://"  # con varias instancias usar redis://...
+    trusted_proxy_hops: int = 0
     gmail_delegated_user: str = ""  # vacío = envío de correo simulado (solo desarrollo)
 
     @property

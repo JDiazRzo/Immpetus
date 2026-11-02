@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.api.deps import get_verificador_google
 from app.config import get_settings
 from app.db import get_db
 from app.errors import AppError
+from app.limiter import LIMITE_LOGIN, limiter
 from app.models.admin import GoogleLogin, UsuarioAdmin
 from app.orm import Usuario
 from app.services import sesion
@@ -17,7 +18,9 @@ router = APIRouter(prefix="/api/auth", tags=["autenticación"])
 
 
 @router.post("/google", response_model=UsuarioAdmin)
+@limiter.limit(LIMITE_LOGIN)
 def login_google(
+    request: Request,
     body: GoogleLogin,
     response: Response,
     db: Annotated[Session, Depends(get_db)],

@@ -50,6 +50,18 @@ def get_enviar_reporte() -> Callable[[list[str], str], None]:
     return gmail.enviar_reporte
 
 
+def get_enviar_aviso_contacto() -> Callable[[dict], None]:
+    """gmail.enviar_aviso_contacto(datos): OPCIONAL. Si Gmail no está configurado o esa función
+    todavía no existe, se usa la simulación y el formulario de contacto sigue funcionando."""
+    if not get_settings().gmail_delegated_user:
+        return integraciones_dev.enviar_aviso_contacto
+    try:
+        from app.integraciones import gmail
+    except ImportError:
+        return integraciones_dev.enviar_aviso_contacto
+    return getattr(gmail, "enviar_aviso_contacto", integraciones_dev.enviar_aviso_contacto)
+
+
 def get_verificador_google() -> Callable[[str], dict]:
     return google.verificar_id_token  # los tests lo reemplazan: no se llama a Google
 

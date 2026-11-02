@@ -21,3 +21,7 @@ def borrar_hv(drive_file_id: str) -> None:
 
 def enviar_reporte(destinatarios: list[str], html: str) -> None:
     log.warning("Gmail simulado: reporte NO enviado (%d destinatarios).", len(destinatarios))
+
+
+def enviar_aviso_contacto(datos: dict) -> None:
+    log.warning("Gmail simulado: aviso de contacto NO enviado.")

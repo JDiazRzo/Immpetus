@@ -4,19 +4,19 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select  # NUEVO: func
-from sqlalchemy.exc import IntegrityError  # NUEVO
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.errors import AppError, not_found, validation_error
 from app.models.postulaciones import DriveFile, PostulacionCreada
 from app.orm import Candidato, Vacante
+from app.services import candidatos as cand
 from app.services import estados
 
 GuardarHV = Callable[[bytes, Vacante, str], DriveFile]
 PDF_MAGIC = b"%PDF-"
 
-# NUEVO
 MENSAJE_DUPLICADO = (
     "Ya recibimos tu hoja de vida para esta vacante. "
     "Si necesitas actualizarla, escríbenos a seleccion@immpetus.co."
@@ -41,21 +41,6 @@ def nombre_archivo_inicial(nombre: str, cargo: str) -> str:
     return f"SN - {_limpio(nombre)} - {_limpio(cargo)}.pdf"
 
 
-# NUEVO
-def ya_postulado(db: Session, vacante_id: uuid.UUID, correo: str) -> bool:
-    """Una postulación activa por correo y vacante (los anonimizados no cuentan)."""
-    return (
-        db.scalar(
-            select(Candidato.id).where(
-                Candidato.vacante_id == vacante_id,
-                func.lower(Candidato.correo) == correo.strip().lower(),
-                Candidato.anonimizado_en.is_(None),
-            )
-        )
-        is not None
-    )
-
-
 def crear_postulacion_web(
     db: Session,
     *,
@@ -66,6 +51,7 @@ def crear_postulacion_web(
     contenido_pdf: bytes,
     autorizacion_datos: bool,
     autorizacion_version: str,
+    acepta_futuras: bool = False,
     guardar_hv: GuardarHV,
 ) -> PostulacionCreada:
     if not autorizacion_datos:
@@ -77,8 +63,7 @@ def crear_postulacion_web(
     if vacante is None:
         raise not_found("Esta vacante no existe o ya no está disponible.")
 
-    # NUEVO: se revisa antes de subir a Drive para no guardar un PDF que se va a rechazar.
-    if ya_postulado(db, vacante.id, correo):
+    if cand.existe_postulacion_activa(db, vacante.id, correo):
         raise AppError(409, "CONFLICT", MENSAJE_DUPLICADO, "correo")
 
     archivo = nombre_archivo_inicial(nombre, vacante.cargo)
@@ -103,9 +88,11 @@ def crear_postulacion_web(
         autorizacion_datos=True,
         autorizacion_fecha=datetime.now(UTC),
         autorizacion_version=autorizacion_version.strip() or "1.0",
+        acepta_futuras=acepta_futuras,
+        acepta_futuras_fecha=datetime.now(UTC) if acepta_futuras else None,
     )
     db.add(candidato)
-    # NUEVO: si llegan dos envíos iguales al mismo tiempo, el índice único de la base frena el segundo.
+    # Dos envíos simultáneos: el índice único de la base frena el segundo.
     try:
         db.flush()
     except IntegrityError as exc:

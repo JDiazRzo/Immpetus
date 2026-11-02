@@ -78,7 +78,22 @@ def listar_candidatos(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> Pagina[CandidatoLista]:
-    items, total = cand.listar_por_vacante(db, vacante_id, estado, orden, page, page_size)
+    items, total = cand.listar(
+        db, vacante_id=vacante_id, estado=estado, orden=orden, page=page, page_size=page_size
+    )
+    return Pagina(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/candidatos", response_model=Pagina[CandidatoLista])
+def listar_todos_los_candidatos(
+    db: Db,
+    estado: EstadoCandidato | None = None,
+    orden: Literal["nota_desc", "nota_asc", "reciente"] = "reciente",
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> Pagina[CandidatoLista]:
+    """Candidatos de TODAS las vacantes (p. ej. `?estado=por_validar`), paginados desde la base."""
+    items, total = cand.listar(db, estado=estado, orden=orden, page=page, page_size=page_size)
     return Pagina(items=items, total=total, page=page, page_size=page_size)
 
 

@@ -1,6 +1,7 @@
 # Contrato de la API · Sistema de selección Immpetus
 
-Versión 0.4 · Sprint 3: reserva, correos sin asignar, reporte y anonimización (secciones 3 y 5.8, códigos 502).
+Versión 0.5 · Futuras vacantes, formulario de contacto, límites de peticiones y listado global de candidatos (secciones 1, 2, 3, 5.9 y 5.10).
+v0.4 · Sprint 3: reserva, correos sin asignar, reporte y anonimización (secciones 3 y 5.8, códigos 502).
 v0.3 · Agrega la autenticación con Google (sección 1.5) y cambia la sesión del centro de mando a cookie httpOnly.
 v0.2 · Agrega la sección 5 (reglas de negocio) con las decisiones de la revisión de backend.
 Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend y backend.
@@ -26,7 +27,9 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 | 403 | `FORBIDDEN` | Cuenta fuera del dominio, no registrada, inactiva o sin rol |
 | 404 | `NOT_FOUND` | Recurso no existe |
 | 409 | `CONFLICT` | Transición de estado no permitida |
-| 413 | `FILE_TOO_LARGE` | PDF supera el límite |
+| 413 | `FILE_TOO_LARGE` | PDF supera el límite (se corta antes de leerlo: ver 5.10) |
+| 413 | `PAYLOAD_TOO_LARGE` | Cuerpo JSON de contacto o login mayor a 64 KB |
+| 429 | `RATE_LIMITED` | Demasiadas peticiones desde la misma IP (ver 5.10) |
 | 502 | `STORAGE_ERROR` | Falló Drive (guardar, mover o borrar el PDF) |
 | 502 | `EMAIL_ERROR` | Falló el envío del reporte por Gmail |
 
@@ -105,12 +108,40 @@ Detalle de una vacante activa (404 si está inactiva).
 | `archivo` | PDF | Solo `application/pdf`, máximo `MAX_PDF_MB` (variable de entorno, por defecto 5) |
 | `autorizacion_datos` | boolean | Debe ser `true`, si no → 400 |
 | `autorizacion_version` | texto | Ej. `"1.0"` |
+| `autorizacion_futuras` | boolean | Opcional, por defecto `false`. Si es `true`, se guarda `acepta_futuras = true` y `acepta_futuras_fecha = now()` (regla 5.9) |
 
 Respuesta `201`:
 ```json
 { "id": "uuid", "estado": "nuevo", "mensaje": "Postulación enviada." }
 ```
 El backend guarda el PDF en Drive y deja el candidato en `nuevo`. La calificación con IA corre después, en segundo plano (ver sección 3).
+
+Errores propios de este endpoint:
+- `409 CONFLICT`: ese correo ya tiene una postulación **activa** a la vacante (no anonimizada y no `no_apto`). Se revisa antes de subir el PDF a Drive.
+- `413 FILE_TOO_LARGE`: el cuerpo supera `MAX_PDF_MB` + 1 MB (se rechaza sin leerlo) o el PDF supera `MAX_PDF_MB`.
+- `429 RATE_LIMITED`: más de **5 postulaciones por hora** por IP.
+
+### `POST /api/contacto`
+Formulario "Hablemos de su equipo" de la landing (empresas que buscan los servicios de Immpetus).
+
+`application/json`
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `nombre` | texto | Obligatorio, 3–120 caracteres |
+| `empresa` | texto \| null | Opcional, máx. 160 |
+| `correo` | email | Obligatorio, máx. 254 |
+| `telefono` | texto \| null | Opcional, máx. 30 |
+| `servicio` | enum \| null | `adquisicion_talento`, `talento_bpo`, `gestion_estrategica`, `formacion_liderazgo`, `procesos`, `otro` |
+| `mensaje` | texto | Obligatorio, 10–2000 caracteres |
+| `autorizacion_datos` | boolean | Debe ser `true`, si no → 400 (`field: "autorizacion_datos"`) |
+
+Respuesta `201`: `{ "id": "uuid" }`
+
+El backend:
+1. Valida con Pydantic (`extra="forbid"`: cualquier campo no listado → 400), recorta espacios, guarda el correo en minúsculas y trata `""` en los opcionales como `null`.
+2. Guarda en `contactos` y **después** responde; el aviso al correo comercial (`gmail.enviar_aviso_contacto`) corre en segundo plano y si falla o Gmail no está listo, el contacto queda guardado igual.
+3. Límite: **3 por hora por IP** → `429 RATE_LIMITED`. Cuerpo mayor a 64 KB → `413 PAYLOAD_TOO_LARGE`.
 
 ---
 
@@ -139,6 +170,8 @@ Respuesta `200`: igual a `GET /api/admin/me`.
 
 ### `POST /api/auth/logout`
 Borra la cookie. Respuesta `204`, aunque no haya sesión.
+
+Límite: **10 intentos por minuto por IP** → `429 RATE_LIMITED`.
 
 **Notas**
 - El `proxy.ts` del frontend solo revisa que la cookie exista para redirigir a `/admin/login`; la validación real la hace el backend en cada petición a `/api/admin/*` (dependencia `usuario_actual`).
@@ -193,6 +226,7 @@ Respuesta de `/resumen`:
       "nota_validada": false,
       "validada_por": null,
       "estado": "nuevo",
+      "acepta_futuras": false,
       "habilidades": [ { "nombre": "Zendesk", "coincide": true } ],
       "creado_en": "…"
     }
@@ -200,6 +234,9 @@ Respuesta de `/resumen`:
   "total": 42, "page": 1, "page_size": 20
 }
 ```
+
+`GET /api/admin/candidatos?estado=por_validar&orden=nota_desc&page=1&page_size=20`
+Candidatos de **todas** las vacantes, mismo formato de lista (cada item trae su `vacante_id`). Filtros opcionales: `estado` y `orden` (`reciente` por defecto, `nota_desc`, `nota_asc`; los candidatos sin nota quedan al final). Se filtra, ordena y pagina en la base: solo se arman los de la página pedida. `page_size` máximo 100.
 
 `GET /api/admin/candidatos/{id}` → lo anterior más:
 ```json
@@ -228,9 +265,9 @@ Corregir la nota **no cambia el estado** (ver regla 5.4). Devuelve el candidato 
 ### Reserva Estratégica
 
 `GET /api/admin/reserva?habilidad_id=uuid&habilidad_id=uuid&cargo=soporte`
-Devuelve candidatos en estado `reserva` con esas habilidades (mismo formato de lista).
+Devuelve candidatos en estado `reserva` con esas habilidades (mismo formato de lista) **que aceptaron ser considerados para futuras vacantes** (`acepta_futuras = true`) y no están anonimizados.
 
-`POST /api/admin/reserva/{candidato_id}/asociar` → `{ "vacante_id": "uuid" }`
+`POST /api/admin/reserva/{candidato_id}/asociar` → `{ "vacante_id": "uuid" }`. `409` si el candidato no aceptó futuras vacantes (regla 5.9).
 
 ### Habilidades
 `GET /api/admin/habilidades?q=excel` → `[{ "id": "uuid", "nombre": "Excel", "categoria": "herramienta" }]`
@@ -244,6 +281,14 @@ Respuesta `202 { "enviado": true }`.
 |---|---|---|
 | `GET` | `/api/admin/correos-sin-asignar` | HV de correo que no se pudieron asociar a una vacante |
 | `POST` | `/api/admin/correos-sin-asignar/{id}/asignar` | `{ "vacante_id": "uuid" }` → crea el candidato y lo devuelve (ver regla 5.6) |
+
+### Contactos de empresas
+| Método | Ruta | Uso |
+|---|---|---|
+| `GET` | `/api/admin/contactos?atendido=false` | Bandeja de contactos, paginada, los más recientes primero. `atendido` es opcional (sin él, todos) |
+| `PATCH` | `/api/admin/contactos/{id}` | `{ "atendido": true }` → devuelve el contacto. No acepta otros campos. `gerencia` consulta pero no modifica |
+
+Item: `{ id, nombre, empresa, correo, telefono, servicio, mensaje, atendido, creado_en }`.
 
 ---
 
@@ -276,6 +321,11 @@ def leer_postulaciones_nuevas() -> list[CorreoHV]:
 
 def enviar_reporte(destinatarios: list[str], html: str) -> None: ...
 # El asunto del correo sale del <title> del html (el contrato no tiene parámetro `asunto`).
+
+def enviar_aviso_contacto(datos: dict) -> None:           # v0.5 (opcional)
+    """Avisa al correo comercial de un contacto nuevo. `datos` = nombre, empresa, correo, telefono,
+    servicio, mensaje (texto escrito por un desconocido: escapar el HTML al armar el correo).
+    Si falla, el backend solo lo registra; el contacto ya quedó guardado."""
 ```
 
 Salida esperada de `calificar_hv` (validar con Pydantic):
@@ -379,10 +429,24 @@ Regla general: los modelos públicos nunca exponen IDs internos de habilidades, 
 
 - **Listas paginadas.** `GET /api/admin/reserva` y `GET /api/admin/correos-sin-asignar` responden `{ items, total, page, page_size }`. `correos-sin-asignar` solo trae los pendientes e incluye `archivo_nombre` (columna nueva, migración `0003`; la llena el job de ingesta).
 - **Reserva · filtros.** `habilidad_id` repetido exige tener **todas** las habilidades; `cargo` busca dentro del cargo de la vacante de origen. Solo candidatos en `reserva` y no anonimizados.
-- **`POST /reserva/{candidato_id}/asociar`** → `201` con el candidato **nuevo**: se crea otra postulación del mismo titular en la vacante destino (debe estar activa, distinta de la original y sin postulación previa). Nace en `nuevo`, sin nota (la IA califica contra los criterios nuevos); el original sigue en `reserva`. Conserva la autorización original [VERIFICAR con asesoría legal que cubra otras vacantes].
+- **`POST /reserva/{candidato_id}/asociar`** → `201` con el candidato **nuevo**: se crea otra postulación del mismo titular en la vacante destino (debe estar activa, distinta de la original y sin postulación previa). Nace en `nuevo`, sin nota (la IA califica contra los criterios nuevos); el original sigue en `reserva`. Solo si el titular aceptó futuras vacantes (5.9); la copia conserva `acepta_futuras` con su fecha original.
 - **`POST /correos-sin-asignar/{id}/asignar`** → `201`. Nombre y correo salen del remitente (`Nombre <correo>`); si no hay nombre se usa la parte local del correo; `celular` queda vacío. `404` si ya fue asignado. La calificación con IA se dispara al integrarse `integraciones/ia.py`.
 - **`POST /candidatos/{id}/anonimizar`** (solo `lider`, `403` para otros roles). Anonimiza **todas** las postulaciones del mismo correo y sus correos sin asignar, borra el PDF en Drive **antes** (si falla: `502` y no se toca la base) y deja un evento en el historial sin datos personales. `409` si ya estaba anonimizado.
 - **`POST /vacantes/{id}/reporte`** → `202`. Solo acepta destinatarios del dominio `ALLOWED_EMAIL_DOMAIN`; el ranking excluye `no_apto` y anonimizados. Los roles `gerencia` consultan pero no envían.
+
+### 5.9 Autorización para futuras vacantes
+- La autorización de datos obligatoria cubre **solo la vacante a la que se postula**.
+- Conservar la HV para otras vacantes requiere una autorización aparte, opcional y desmarcada por defecto (`autorizacion_futuras`).
+- Sin esa autorización, el candidato no aparece en la Reserva Estratégica ni puede asociarse a otra vacante (`POST /reserva/{id}/asociar` → `409`).
+- Las HV recibidas por correo entran con `acepta_futuras = false`.
+- Anonimizar retira también esta autorización (backend y función SQL `anonimizar_candidato`, migración 0006).
+- Un correo no puede tener dos postulaciones **activas** a la misma vacante (`409`). Activa = no anonimizada y no `no_apto`: quien fue descartado puede volver a postularse. Aplica a la web, a asignar un correo y a asociar desde la Reserva.
+
+### 5.10 Seguridad de los endpoints públicos
+- **Límite de peticiones por IP** (slowapi): 5/hora en `POST /api/postulaciones`, 3/hora en `POST /api/contacto`, 10/minuto en `POST /api/auth/google`. Excedido → `429 RATE_LIMITED`. Solo cuentan las peticiones válidas que llegan al endpoint.
+- **IP real detrás de proxies.** Si el backend está detrás de proxies propios (Next, Vercel, Cloud Run) hay que poner `TRUSTED_PROXY_HOPS` = cuántos proxies hay delante; la IP real se toma de esa posición **desde el final** de `X-Forwarded-For`. Con `0` (por defecto) se usa la IP de la conexión: tras un proxy **todos los usuarios compartirían el mismo cupo**.
+- Con varias instancias del backend el contador en memoria es por instancia: usar `RATE_LIMIT_STORAGE_URI=redis://…`.
+- **Tamaño del cuerpo** (middleware ASGI): `POST /api/postulaciones` se rechaza con `413` si `Content-Length` supera `MAX_PDF_MB` + 1 MB, sin leerlo; si no hay `Content-Length` (subida en trozos) se cuentan los bytes y se corta al pasar el límite. `POST /api/contacto` y `/api/auth/google`: 64 KB.
 
 ## Pendientes [POR CONFIRMAR]
 

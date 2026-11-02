@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.errors import AppError, not_found
@@ -18,7 +18,11 @@ def buscar(
     consulta = (
         select(Candidato)
         .join(Vacante, Vacante.id == Candidato.vacante_id)
-        .where(Candidato.estado == "reserva", Candidato.anonimizado_en.is_(None))
+        .where(
+            Candidato.estado == "reserva",
+            Candidato.acepta_futuras.is_(True),  # la autorización para futuras vacantes es aparte
+            Candidato.anonimizado_en.is_(None),
+        )
     )
     for hid in set(habilidad_ids):  # debe tener TODAS las habilidades pedidas
         consulta = consulta.where(
@@ -43,12 +47,19 @@ def asociar(
     """Crea una nueva postulación (fila) del mismo titular en otra vacante.
 
     No copia la nota: fue contra otros criterios; la IA debe calificar para la nueva vacante.
-    El original permanece en la Reserva.
+    El original permanece en la Reserva. Exige que el titular haya autorizado conservar su HV para
+    futuras vacantes (acepta_futuras); si no, 409.
     """
     cand.exigir_no_anonimizado(origen)
     if origen.estado != "reserva":
         raise AppError(
             409, "CONFLICT", "Solo se pueden asociar candidatos de la Reserva Estratégica."
+        )
+    if not origen.acepta_futuras:
+        raise AppError(
+            409,
+            "CONFLICT",
+            "El candidato no autorizó que su hoja de vida se considere para otras vacantes.",
         )
     destino = db.get(Vacante, vacante_id)
     if destino is None:
@@ -57,13 +68,7 @@ def asociar(
         raise AppError(409, "CONFLICT", "La vacante no está activa.")
     if destino.id == origen.vacante_id:
         raise AppError(409, "CONFLICT", "El candidato ya pertenece a esa vacante.")
-    ya = db.scalar(
-        select(Candidato.id).where(
-            Candidato.vacante_id == destino.id,
-            func.lower(Candidato.correo) == origen.correo.lower(),
-        )
-    )
-    if ya:
+    if cand.existe_postulacion_activa(db, destino.id, origen.correo):
         raise AppError(409, "CONFLICT", "El candidato ya está postulado a esa vacante.")
 
     nuevo = Candidato(
@@ -76,8 +81,10 @@ def asociar(
         drive_url=origen.drive_url,
         archivo_nombre=origen.archivo_nombre,
         autorizacion_datos=True,
-        autorizacion_fecha=origen.autorizacion_fecha,  # se conserva la autorización original
+        autorizacion_fecha=origen.autorizacion_fecha,
         autorizacion_version=origen.autorizacion_version,
+        acepta_futuras=True,  # ya la dio: se conserva con su fecha original
+        acepta_futuras_fecha=origen.acepta_futuras_fecha,
     )
     db.add(nuevo)
     db.flush()

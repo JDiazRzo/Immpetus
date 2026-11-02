@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.api.deps import get_guardar_hv
 from app.config import get_settings
 from app.db import get_db
 from app.errors import AppError, validation_error
+from app.limiter import LIMITE_POSTULACIONES, limiter
 from app.models.postulaciones import PostulacionCreada
 from app.services import postulaciones as svc
 
@@ -17,7 +18,9 @@ _email = TypeAdapter(EmailStr)
 
 
 @router.post("", response_model=PostulacionCreada, status_code=201)
+@limiter.limit(LIMITE_POSTULACIONES)
 async def crear(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     guardar_hv: Annotated[svc.GuardarHV, Depends(get_guardar_hv)],
     vacante_id: Annotated[UUID, Form()],
@@ -27,6 +30,7 @@ async def crear(
     archivo: Annotated[UploadFile, File()],
     autorizacion_datos: Annotated[bool, Form()],
     autorizacion_version: Annotated[str, Form()] = "1.0",
+    autorizacion_futuras: Annotated[bool, Form()] = False,
 ) -> PostulacionCreada:
     try:
         correo_ok = str(_email.validate_python(correo))
@@ -54,5 +58,6 @@ async def crear(
         contenido_pdf=contenido,
         autorizacion_datos=autorizacion_datos,
         autorizacion_version=autorizacion_version,
+        acepta_futuras=autorizacion_futuras,
         guardar_hv=guardar_hv,
     )
