@@ -19,7 +19,7 @@ export function Candidato({ id }: { id: string }) {
   const vacanteId = cand.datos?.vacante_id;
   const vacante = useAdmin(() => (vacanteId ? obtenerVacanteAdmin(vacanteId) : Promise.resolve(null)), [vacanteId]);
 
-  if (cand.estado !== "listo") return <Estado cargando={cand.estado === "cargando"} error={cand.error} />;
+  if (cand.estado !== "listo") return <Estado forma="pagina" cargando={cand.estado === "cargando"} error={cand.error} />;
   const c = cand.datos;
   const v = vacante.datos;
 
