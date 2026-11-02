@@ -1,7 +1,5 @@
+import { EsqueletoPagina } from "@/components/admin/Esqueleto";
+
 export default function Loading() {
-  return (
-    <p className="text-ink-soft" role="status">
-      Cargando…
-    </p>
-  );
+  return <EsqueletoPagina />;
 }

@@ -30,7 +30,7 @@ export function Reserva() {
           </label>
           <fieldset>
             <legend className="mb-2 text-sm font-semibold">Debe tener todas estas habilidades</legend>
-            <Estado cargando={habilidades.estado === "cargando"} />
+            <Estado forma="chips" cargando={habilidades.estado === "cargando"} />
             <div className="flex flex-wrap gap-2">
               {habilidades.datos?.map((h) => (
                 <button

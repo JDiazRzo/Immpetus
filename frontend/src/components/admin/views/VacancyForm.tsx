@@ -27,7 +27,7 @@ const input = "min-h-11 w-full rounded-chip border border-line-strong bg-surface
 
 export function VacancyFormPage({ id }: { id?: string }) {
   const existente = useAdmin(() => (id ? obtenerVacanteAdmin(id) : Promise.resolve(null)), [id]);
-  if (existente.estado !== "listo") return <Estado cargando={existente.estado === "cargando"} error={existente.error} />;
+  if (existente.estado !== "listo") return <Estado forma="pagina" cargando={existente.estado === "cargando"} error={existente.error} />;
   return <VacancyForm inicial={existente.datos} />;
 }
 
@@ -142,7 +142,7 @@ function VacancyForm({ inicial }: { inicial: VacanteAdmin | null }) {
           <p className="px-5 pt-4 text-sm text-ink-soft">
             La IA compara cada hoja de vida con estos criterios. No incluya edad, sexo, estado civil, religión, etnia ni discapacidad.
           </p>
-          <Estado cargando={habilidades.estado === "cargando"} error={habilidades.error} />
+          <Estado forma="chips" cargando={habilidades.estado === "cargando"} error={habilidades.error} />
           <ul className="grid gap-x-6 p-5 sm:grid-cols-2">
             {habilidades.datos?.map((h) => {
               const c = criterio(h.id);
