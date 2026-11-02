@@ -1,21 +1,55 @@
 import json
 import os
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2 import service_account  # pyright: ignore[reportMissingImports]
+from google.oauth2.credentials import Credentials  # pyright: ignore[reportMissingImports]
+from googleapiclient.discovery import build  # pyright: ignore[reportMissingImports]
+from googleapiclient.http import MediaIoBaseUpload  # pyright: ignore[reportMissingImports]
 from io import BytesIO
 
 # Configuración de los scopes necesarios para Google Drive
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
+import os
+from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+SCOPES = ['https://www.googleapis.com/auth/drive']
+
 def _get_drive_service():
-    """Inicializa y retorna el cliente de la API de Google Drive usando variables de entorno."""
-    creds_json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not creds_json_str:
-        raise ValueError("La variable de entorno GOOGLE_SERVICE_ACCOUNT_JSON no está configurada.")
+    """Selecciona dinámicamente el método de autenticación según la variable de entorno."""
+    auth_mode = os.getenv("DRIVE_AUTH_MODE", "service_account").lower()
     
-    creds_dict = json.loads(creds_json_str)
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    if auth_mode == "oauth":
+        # Modo OAuth (Usuario personal con Refresh Token)
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
+
+        faltantes = []
+        if not client_id: faltantes.append("GOOGLE_CLIENT_ID")
+        if not client_secret: faltantes.append("GOOGLE_CLIENT_SECRET")
+        if not refresh_token: faltantes.append("GOOGLE_REFRESH_TOKEN")
+        
+        if faltantes:
+            raise ValueError(f"Faltan las siguientes variables de entorno para OAuth: {', '.join(faltantes)}")
+        
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=SCOPES
+        )
+    else:
+        creds_json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if not creds_json_str:
+            raise ValueError("La variable de entorno GOOGLE_SERVICE_ACCOUNT_JSON no está configurada.")
+        creds_dict = json.loads(creds_json_str)
+        creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+
+
     return build('drive', 'v3', credentials=creds)
 
 def _obtener_o_crear_carpeta(service, nombre_carpeta: str, parent_id: str = None) -> str:
@@ -63,7 +97,6 @@ def guardar_hv(pdf_bytes: bytes, vacante, nombre: str) -> dict:
     """Sube a Drive/<vacante.codigo>/ y devuelve id y url."""
     service = _get_drive_service()
     folder_id = _resolver_ruta_vacante(service, vacante.codigo)
-    print(f"📂 Carpeta de vacante '{vacante.codigo}' resuelta con ID: {folder_id}")
     
     file_metadata = {
         'name': f"{nombre}.pdf",
@@ -71,8 +104,6 @@ def guardar_hv(pdf_bytes: bytes, vacante, nombre: str) -> dict:
     }
     
     media = MediaIoBaseUpload(BytesIO(pdf_bytes), mimetype='application/pdf', resumable=True)
-
-    print("folder id: ", folder_id)
     
     file = service.files().create(
         body=file_metadata,
