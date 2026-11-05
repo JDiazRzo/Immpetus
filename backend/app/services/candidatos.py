@@ -40,6 +40,13 @@ def obtener(db: Session, candidato_id: uuid.UUID) -> Candidato:
     return c
 
 
+def exigir_convocatoria_abierta(db: Session, c: Candidato) -> None:
+    """Sobre candidatos de una convocatoria cerrada no se decide: 409."""
+    v = db.get(Vacante, c.vacante_id)
+    if v is not None and v.estado == "cerrada":
+        raise AppError(409, "CONFLICT", "La convocatoria está cerrada.")
+
+
 def exigir_no_anonimizado(c: Candidato) -> None:
     if c.anonimizado_en is not None:
         raise AppError(409, "CONFLICT", "El candidato fue anonimizado y ya no se puede modificar.")
@@ -285,6 +292,7 @@ def corregir_nota(
 ) -> CandidatoLista:
     """Contrato 5.4: guarda la nota con origen 'analista' y NUNCA cambia el estado."""
     exigir_no_anonimizado(c)
+    exigir_convocatoria_abierta(db, c)
     db.add(
         Calificacion(
             candidato_id=c.id, nota=nota, origen="analista", motivo=motivo, usuario_id=usuario.id

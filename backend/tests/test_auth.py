@@ -79,3 +79,90 @@ def test_secreto_corto_falla_claro(monkeypatch):
 
     with pytest.raises(RuntimeError):
         sesion.crear_token(uuid.uuid4())
+
+
+# ---------- REQUIRE_HD ----------
+SIN_HD = {"email": "ana@immpetus.co", "email_verified": True}  # cuenta de Google sin Workspace
+HD_AJENO = {"email": "ana@immpetus.co", "hd": "otra.com", "email_verified": True}
+
+
+def _con_tokens(**tokens):
+    from tests.conftest import TOKENS
+
+    TOKENS.update(tokens)
+    return TOKENS
+
+
+def test_require_hd_activo_por_defecto_exige_el_claim_hd(client, usuarios):
+    from app.config import get_settings
+
+    assert get_settings().require_hd is True
+    tokens = _con_tokens(**{"tok-sin-hd": SIN_HD})
+    try:
+        r = client.post(LOGIN, json={"id_token": "tok-sin-hd"})
+        assert r.status_code == 403 and "@immpetus.co" in r.json()["error"]["message"]
+        assert client.post(LOGIN, json={"id_token": "tok-analista"}).status_code == 200  # con hd
+    finally:
+        tokens.pop("tok-sin-hd", None)
+
+
+def test_sin_require_hd_se_acepta_una_cuenta_del_dominio_sin_hd(client, usuarios, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "require_hd", False)
+    tokens = _con_tokens(**{"tok-sin-hd": SIN_HD})
+    try:
+        r = client.post(LOGIN, json={"id_token": "tok-sin-hd"})
+        assert r.status_code == 200 and r.json()["correo"] == "ana@immpetus.co"
+    finally:
+        tokens.pop("tok-sin-hd", None)
+
+
+def test_sin_require_hd_un_hd_de_otro_dominio_sigue_rechazado(client, usuarios, monkeypatch):
+    from app.config import get_settings
+
+    tokens = _con_tokens(**{"tok-hd-ajeno": HD_AJENO})
+    try:
+        for valor in (True, False):
+            monkeypatch.setattr(get_settings(), "require_hd", valor)
+            assert client.post(LOGIN, json={"id_token": "tok-hd-ajeno"}).status_code == 403
+    finally:
+        tokens.pop("tok-hd-ajeno", None)
+
+
+def test_el_correo_del_dominio_es_obligatorio_con_o_sin_require_hd(client, usuarios, monkeypatch):
+    from app.config import get_settings
+
+    for valor in (True, False):
+        monkeypatch.setattr(get_settings(), "require_hd", valor)
+        assert client.post(LOGIN, json={"id_token": "tok-gmail"}).status_code == 403
+
+
+def test_sin_require_hd_la_cuenta_debe_seguir_registrada_y_activa(client, usuarios, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "require_hd", False)
+    tokens = _con_tokens(
+        **{
+            "tok-sin-hd": SIN_HD,
+            "tok-sin-hd-baja": {**SIN_HD, "email": "baja@immpetus.co"},
+            "tok-sin-hd-nadie": {**SIN_HD, "email": "nadie@immpetus.co"},
+        }
+    )
+    try:
+        assert (
+            client.post(LOGIN, json={"id_token": "tok-sin-hd-nadie"}).status_code == 403
+        )  # no registrada
+        assert (
+            client.post(LOGIN, json={"id_token": "tok-sin-hd-baja"}).status_code == 403
+        )  # inactiva
+    finally:
+        for t in ("tok-sin-hd", "tok-sin-hd-baja", "tok-sin-hd-nadie"):
+            tokens.pop(t, None)
+
+
+def test_sin_require_hd_el_correo_no_verificado_sigue_dando_401(client, usuarios, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "require_hd", False)
+    assert client.post(LOGIN, json={"id_token": "tok-noverificado"}).status_code == 401

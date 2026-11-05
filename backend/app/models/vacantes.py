@@ -38,5 +38,6 @@ class VacanteDetalle(BaseModel):
     salario_texto: str | None
     descripcion: str | None
     responsabilidades: list[str]
+    urgente: bool
     criterios: list[CriterioPublico]
     publicada_en: datetime | None  # el frontend lo usa para JobPosting (SEO)

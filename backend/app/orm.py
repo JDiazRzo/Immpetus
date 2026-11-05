@@ -14,6 +14,7 @@ ESTADOS = ("nuevo", "entrevista", "reserva", "por_validar", "no_apto", "contrata
 MODALIDADES = ("presencial", "hibrido", "remoto")
 CANALES = ("web", "correo")
 ROLES = ("analista", "lider", "gerencia")
+ESTADOS_VACANTE = ("abierta", "cerrada")
 ORIGENES = ("ia", "analista")
 SERVICIOS = (
     "adquisicion_talento",
@@ -45,6 +46,11 @@ class Usuario(Base):
     nombre: Mapped[str] = mapped_column(Text)
     rol: Mapped[str] = mapped_column(_enum("rol_usuario", ROLES))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_ahora, server_default=func.now()
+    )
+    actualizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actualizado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"))
 
 
 class Vacante(Base):
@@ -66,6 +72,13 @@ class Vacante(Base):
     urgente: Mapped[bool] = mapped_column(Boolean, default=False)
     activa: Mapped[bool] = mapped_column(Boolean, default=False)
     drive_folder_id: Mapped[str | None] = mapped_column(Text)
+    # Las convocatorias se cierran, no se borran (migraciones 0007 y 0008).
+    estado: Mapped[str] = mapped_column(
+        _enum("estado_vacante", ESTADOS_VACANTE), default="abierta", server_default="abierta"
+    )
+    cerrada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cerrada_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"))
+    motivo_cierre: Mapped[str | None] = mapped_column(Text)
     creada_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"))
     creada_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora, server_default=func.now()

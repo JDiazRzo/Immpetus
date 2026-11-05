@@ -64,6 +64,8 @@ def asociar(
     destino = db.get(Vacante, vacante_id)
     if destino is None:
         raise not_found("La vacante no existe.")
+    if destino.estado == "cerrada":
+        raise AppError(409, "CONFLICT", "La convocatoria está cerrada.")
     if not destino.activa:
         raise AppError(409, "CONFLICT", "La vacante no está activa.")
     if destino.id == origen.vacante_id:

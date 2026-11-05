@@ -1,10 +1,19 @@
 """Errores con el formato del contrato: { "error": { "code", "message", "field" } }."""
 
+import logging
+import traceback
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+log = logging.getLogger("immpetus.errores")
+
+
+INDICE_POSTULACION = "candidatos_correo_vacante_unico"  # migración de postulación única
 
 
 class AppError(Exception):
@@ -48,6 +57,34 @@ def register_error_handlers(app: FastAPI) -> None:
             _body("RATE_LIMITED", "Demasiados intentos. Intenta de nuevo más tarde."),
             status_code=429,
         )
+
+    @app.exception_handler(Exception)
+    async def _inesperado(request: Request, exc: Exception) -> JSONResponse:
+        # Se registra el TIPO y las líneas del código, NUNCA el mensaje de la excepción: los errores
+        # de base de datos traen los valores (nombres, correos) de la fila que falló.
+        log.error(
+            "Error no controlado en %s %s: %s\n%s",
+            request.method,
+            request.url.path,
+            type(exc).__name__,
+            "".join(traceback.format_tb(exc.__traceback__)),
+        )
+        return JSONResponse(
+            _body("INTERNAL_ERROR", "Ocurrió un error inesperado. Intenta de nuevo."),
+            status_code=500,
+        )
+
+    @app.exception_handler(IntegrityError)
+    async def _integridad(request: Request, exc: IntegrityError) -> JSONResponse:
+        # Carrera entre dos peticiones: el índice único de la base frena la segunda. Solo se
+        # compara el nombre del índice; el mensaje de la base trae datos de la fila y nunca se
+        # muestra ni se registra.
+        if INDICE_POSTULACION in str(exc.orig):
+            return JSONResponse(
+                _body("CONFLICT", "Esa persona ya tiene una postulación activa a esa vacante."),
+                status_code=409,
+            )
+        return await _inesperado(request, exc)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_: Request, exc: StarletteHTTPException) -> JSONResponse:

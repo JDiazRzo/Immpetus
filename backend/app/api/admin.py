@@ -4,12 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import usuario_actual, usuario_con_escritura
+from app.api.deps import usuario_actual, usuario_con_escritura, usuario_lider
 from app.db import get_db
 from app.models.admin import (
     CambioEstado,
     CandidatoDetalle,
     CandidatoLista,
+    CerrarVacante,
     CorreccionNota,
     HabilidadOut,
     ResumenVacante,
@@ -41,10 +42,12 @@ def me(usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
 @router.get("/vacantes", response_model=Pagina[VacanteAdmin])
 def listar_vacantes(
     db: Db,
+    estado: Literal["abierta", "cerrada"] = "abierta",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> Pagina[VacanteAdmin]:
-    items, total = vac.listar(db, page, page_size)
+    """Sin `estado`, solo las abiertas (las cerradas se piden con `?estado=cerrada`)."""
+    items, total = vac.listar(db, estado, page, page_size)
     return Pagina(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -61,6 +64,16 @@ def obtener_vacante(vacante_id: UUID, db: Db) -> VacanteAdmin:
 @router.patch("/vacantes/{vacante_id}", response_model=VacanteAdmin)
 def editar_vacante(vacante_id: UUID, cambios: VacanteUpdate, db: Db, _: Escritor) -> VacanteAdmin:
     return vac.actualizar(db, vacante_id, cambios)
+
+
+@router.post("/vacantes/{vacante_id}/cerrar", response_model=VacanteAdmin)
+def cerrar_vacante(
+    vacante_id: UUID,
+    datos: CerrarVacante,
+    db: Db,
+    lider: Annotated[Usuario, Depends(usuario_lider)],
+) -> VacanteAdmin:
+    return vac.cerrar(db, vacante_id, lider, datos.motivo)
 
 
 @router.get("/vacantes/{vacante_id}/resumen", response_model=ResumenVacante)
@@ -108,6 +121,7 @@ def cambiar_estado(
 ) -> CandidatoLista:
     c = cand.obtener(db, candidato_id)
     cand.exigir_no_anonimizado(c)
+    cand.exigir_convocatoria_abierta(db, c)
     observacion = datos.observacion.strip() if datos.observacion else None
     estados.cambiar_estado(db, c, datos.estado, usuario.id, observacion or None)
     db.commit()
