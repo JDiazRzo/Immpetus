@@ -16,11 +16,15 @@ class Settings(BaseSettings):
     cookie_secure: bool = True  # en producción siempre true
     google_oauth_client_id: str = ""
     allowed_email_domain: str = "immpetus.co"
+    # true en producción: la cuenta de Google debe ser de Workspace (claim `hd`) del dominio.
+    # En desarrollo se puede poner false para probar con una cuenta personal que esté en `usuarios`.
+    require_hd: bool = True
     # Límite de peticiones (slowapi). Detrás de proxies (Vercel/Next/Cloud Run) la IP real viene en
     # X-Forwarded-For: TRUSTED_PROXY_HOPS = cuántos proxies PROPIOS hay delante (0 = ninguno).
     rate_limit_enabled: bool = True
     rate_limit_storage_uri: str = "memory://"  # con varias instancias usar redis://...
     trusted_proxy_hops: int = 0
+    seed_lider_correo: str = ""  # solo desarrollo: lo usa scripts/seed.py
     gmail_delegated_user: str = ""  # vacío = envío de correo simulado (solo desarrollo)
 
     @property

@@ -6,6 +6,14 @@ os.environ.update(
     GOOGLE_OAUTH_CLIENT_ID="cliente-prueba",
     ALLOWED_EMAIL_DOMAIN="immpetus.co",
     RATE_LIMIT_ENABLED="false",  # los tests de límites lo activan a propósito
+    # Se fijan TODAS las opciones que cambian el comportamiento: un .env de desarrollo
+    # (REQUIRE_HD=false, Gmail o Drive configurados) no debe alterar los resultados.
+    REQUIRE_HD="true",
+    TRUSTED_PROXY_HOPS="0",
+    MAX_PDF_MB="5",
+    RATE_LIMIT_STORAGE_URI="memory://",
+    GMAIL_DELEGATED_USER="",
+    DRIVE_ROOT_FOLDER_ID="",
 )
 
 import pytest
@@ -22,7 +30,7 @@ from app.api.deps import (
     get_mover_hv,
     get_verificador_google,
 )
-from app.db import get_db
+from app.db import es_base_local, get_db, host_de
 from app.main import app
 from app.models.postulaciones import DriveFile
 from app.orm import Base, Habilidad, Usuario, Vacante, VacanteHabilidad
@@ -38,6 +46,13 @@ def db():
     """
     url = os.environ.get("TEST_DATABASE_URL")
     if url:
+        if not es_base_local(url) and os.environ.get("PERMITIR_TESTS_EN_BASE_REMOTA") != "si":
+            # Los tests VACÍAN todas las tablas: jamás contra una base compartida o de producción.
+            pytest.exit(
+                f"TEST_DATABASE_URL apunta a '{host_de(url)}', que no es una base local. "
+                "Los tests vacían todas las tablas; se cancelan.",
+                returncode=2,
+            )
         engine = create_engine(url)
         tablas = ", ".join(t.name for t in Base.metadata.sorted_tables)
         with engine.begin() as conn:

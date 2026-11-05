@@ -1,6 +1,7 @@
 # Contrato de la API · Sistema de selección Immpetus
 
-Versión 0.5 · Futuras vacantes, formulario de contacto, límites de peticiones y listado global de candidatos (secciones 1, 2, 3, 5.9 y 5.10).
+Versión 0.6 · Roles con mínimo privilegio, gestión de usuarios y cierre de convocatorias (sección 2.0, 5.11 y 5.12), `REQUIRE_HD`, `urgente` en el detalle público y error 500 con el formato del contrato.
+v0.5 · Futuras vacantes, formulario de contacto, límites de peticiones y listado global de candidatos (secciones 1, 2, 3, 5.9 y 5.10).
 v0.4 · Sprint 3: reserva, correos sin asignar, reporte y anonimización (secciones 3 y 5.8, códigos 502).
 v0.3 · Agrega la autenticación con Google (sección 1.5) y cambia la sesión del centro de mando a cookie httpOnly.
 v0.2 · Agrega la sección 5 (reglas de negocio) con las decisiones de la revisión de backend.
@@ -8,6 +9,7 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 
 ## Convenciones
 
+- Cada endpoint de `/api/admin/*` exige un **rol mínimo** (tabla de la sección 2.0). Sin el rol → `403 FORBIDDEN` con el mensaje "No tiene permiso para esta acción." El rol se consulta en la base en **cada** petición (no va en la cookie): un cambio de rol o una desactivación aplican de inmediato.
 - Base: `/api` (pública), `/api/auth` (inicio y cierre de sesión) y `/api/admin` (requiere sesión).
 - JSON en `snake_case`. Fechas en ISO 8601 UTC (`2026-10-24T15:30:00Z`).
 - IDs: UUID.
@@ -24,12 +26,13 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Datos inválidos |
 | 401 | `UNAUTHENTICATED` | Sin sesión, sesión vencida o token de Google inválido |
-| 403 | `FORBIDDEN` | Cuenta fuera del dominio, no registrada, inactiva o sin rol |
+| 403 | `FORBIDDEN` | Cuenta fuera del dominio, no registrada, inactiva o sin el rol que exige el endpoint |
 | 404 | `NOT_FOUND` | Recurso no existe |
-| 409 | `CONFLICT` | Transición de estado no permitida |
+| 409 | `CONFLICT` | Transición de estado no permitida, duplicado, convocatoria cerrada o dejar el sistema sin líder |
 | 413 | `FILE_TOO_LARGE` | PDF supera el límite (se corta antes de leerlo: ver 5.10) |
 | 413 | `PAYLOAD_TOO_LARGE` | Cuerpo JSON de contacto o login mayor a 64 KB |
 | 429 | `RATE_LIMITED` | Demasiadas peticiones desde la misma IP (ver 5.10) |
+| 500 | `INTERNAL_ERROR` | Error inesperado del servidor (el detalle solo queda en el log, sin datos personales) |
 | 502 | `STORAGE_ERROR` | Falló Drive (guardar, mover o borrar el PDF) |
 | 502 | `EMAIL_ERROR` | Falló el envío del reporte por Gmail |
 
@@ -53,7 +56,7 @@ Cualquier cambio a este archivo se hace por Pull Request y lo aprueban frontend 
 ## 1. Endpoints públicos (web)
 
 ### `GET /api/vacantes`
-Lista las vacantes **activas**. Query opcional: `q` (texto), `modalidad`.
+Lista las vacantes **activas**. Query opcional: `q` (texto), `modalidad`. Orden: primero las `urgente`, luego las más recientes (`publicada_en` desc). `total` es el número real de vacantes que cumplen el filtro, no el de la página.
 
 ```json
 {
@@ -90,6 +93,7 @@ Detalle de una vacante activa (404 si está inactiva).
   "salario_texto": "$2.700.000",
   "descripcion": "texto",
   "responsabilidades": ["...", "..."],
+  "urgente": false,
   "criterios": [
     { "habilidad": "Servicio al cliente", "obligatoria": true }
   ]
@@ -156,7 +160,7 @@ Solo Google. No existe registro ni login con contraseña. Los usuarios del centr
 
 El backend:
 1. Verifica el `id_token` con la librería `google-auth` (firma de Google y `aud` = `GOOGLE_OAUTH_CLIENT_ID`).
-2. Exige `email_verified = true` y `hd` = `ALLOWED_EMAIL_DOMAIN` (`immpetus.co`).
+2. Exige `email_verified = true` y, si `REQUIRE_HD=true` (valor por defecto; **siempre true en producción**), `hd` = `ALLOWED_EMAIL_DOMAIN` (`immpetus.co`). Con `REQUIRE_HD=false` (solo desarrollo), `hd` es opcional: si viene debe coincidir, pero el correo **siempre** debe terminar en `@{ALLOWED_EMAIL_DOMAIN}` y la cuenta estar registrada y activa en `usuarios`.
 3. Busca el correo en `usuarios` con `activo = true`.
 4. Crea la cookie `immpetus_sesion` firmada con `SESSION_SECRET` (httpOnly, Secure, SameSite=Lax, 8 h).
 
@@ -182,6 +186,19 @@ Límite: **10 intentos por minuto por IP** → `429 RATE_LIMITED`.
 
 ## 2. Endpoints del centro de mando (`/api/admin`)
 
+### 2.0 Permisos por rol
+
+| Acción | Endpoints | analista | lider | gerencia |
+|---|---|---|---|---|
+| Ver | todos los `GET /api/admin/*` (excepto usuarios) | ✅ | ✅ | ✅ |
+| Gestionar vacantes | `POST/PATCH /vacantes` | ✅ | ✅ | ❌ |
+| Decidir sobre candidatos | `POST /candidatos/{id}/estado`, `/calificacion`, `/reserva/{id}/asociar`, `/correos-sin-asignar/{id}/asignar` | ✅ | ✅ | ❌ |
+| Reporte a gerencia | `POST /vacantes/{id}/reporte` | ✅ | ✅ | ❌ |
+| Marcar contactos atendidos | `PATCH /contactos/{id}` | ✅ | ✅ | ❌ |
+| Cerrar convocatoria | `POST /vacantes/{id}/cerrar` | ❌ | ✅ | ❌ |
+| Anonimizar | `POST /candidatos/{id}/anonimizar` | ❌ | ✅ | ❌ |
+| Usuarios | `GET/POST/PATCH /usuarios` | ❌ | ✅ | ❌ |
+
 ### `GET /api/admin/me`
 ```json
 { "id": "uuid", "correo": "analista@immpetus.co", "nombre": "…", "rol": "analista" }
@@ -191,10 +208,11 @@ Límite: **10 intentos por minuto por IP** → `429 RATE_LIMITED`.
 
 | Método | Ruta | Uso |
 |---|---|---|
-| `GET` | `/api/admin/vacantes` | Todas (activas e inactivas) |
+| `GET` | `/api/admin/vacantes?estado=abierta\|cerrada` | Las del `estado` pedido (activas e inactivas). **Sin el parámetro, solo las abiertas** |
 | `POST` | `/api/admin/vacantes` | Crear vacante |
 | `PATCH` | `/api/admin/vacantes/{id}` | Editar; incluye `{ "activa": true/false }` para el interruptor |
 | `GET` | `/api/admin/vacantes/{id}/resumen` | Contadores del panel |
+| `POST` | `/api/admin/vacantes/{id}/cerrar` | Cierra la convocatoria (solo `lider`, ver 5.12) |
 
 Cuerpo de `POST` / `PATCH`:
 ```json
@@ -205,6 +223,10 @@ Cuerpo de `POST` / `PATCH`:
   "criterios": [ { "habilidad_id": "uuid", "obligatoria": true, "peso": 3 } ]
 }
 ```
+
+`VacanteAdmin` incluye además `"estado": "abierta"` (`"abierta"` \| `"cerrada"`), `"cerrada_en": null` y `"motivo_cierre": null`.
+
+Cuerpo de `/cerrar`: `{ "motivo": "Cargo cubierto" }` (obligatorio, 3–500 caracteres). Devuelve la `VacanteAdmin` ya cerrada.
 
 Respuesta de `/resumen`:
 ```json
@@ -281,6 +303,21 @@ Respuesta `202 { "enviado": true }`.
 |---|---|---|
 | `GET` | `/api/admin/correos-sin-asignar` | HV de correo que no se pudieron asociar a una vacante |
 | `POST` | `/api/admin/correos-sin-asignar/{id}/asignar` | `{ "vacante_id": "uuid" }` → crea el candidato y lo devuelve (ver regla 5.6) |
+
+### Usuarios (solo `lider`)
+
+`GET /api/admin/usuarios` → lista simple (no paginada):
+```json
+[ { "id": "uuid", "correo": "maria@immpetus.co", "nombre": "María Isabel", "rol": "lider", "activo": true, "creado_en": "…" } ]
+```
+
+`POST /api/admin/usuarios` → `{ "correo": "juan@immpetus.co", "nombre": "Juan Pérez", "rol": "analista" }`, respuesta `201` con el usuario.
+- El correo se guarda en minúsculas y debe terminar en `@{ALLOWED_EMAIL_DOMAIN}`; si no, `400` con `field: "correo"`.
+- Correo ya registrado (incluso desactivado) → `409` "Este correo ya tiene acceso. Si está desactivado, actívelo."
+
+`PATCH /api/admin/usuarios/{id}` → `{ "rol": "lider" }` o `{ "activo": false }` (o ambos). Cualquier otro campo, o un cuerpo vacío o con `null` → `400`. Guarda `actualizado_en` y `actualizado_por`.
+- Si dejaría al sistema sin líder activo → `409` "Debe quedar al menos un líder activo. Asigne otro líder antes." (también lo bloquea un trigger de la base; el backend traduce ese error al mismo `409`).
+- No existe `DELETE` (`405`): los usuarios se desactivan.
 
 ### Contactos de empresas
 | Método | Ruta | Uso |
@@ -440,13 +477,24 @@ Regla general: los modelos públicos nunca exponen IDs internos de habilidades, 
 - Sin esa autorización, el candidato no aparece en la Reserva Estratégica ni puede asociarse a otra vacante (`POST /reserva/{id}/asociar` → `409`).
 - Las HV recibidas por correo entran con `acepta_futuras = false`.
 - Anonimizar retira también esta autorización (backend y función SQL `anonimizar_candidato`, migración 0006).
-- Un correo no puede tener dos postulaciones **activas** a la misma vacante (`409`). Activa = no anonimizada y no `no_apto`: quien fue descartado puede volver a postularse. Aplica a la web, a asignar un correo y a asociar desde la Reserva.
+- Un correo no puede tener dos postulaciones **activas** a la misma vacante (`409`). Lo garantiza también el índice único `candidatos_correo_vacante_unico`: si dos peticiones coinciden, la segunda recibe el mismo `409`, nunca un `500`. Activa = no anonimizada y no `no_apto`: quien fue descartado puede volver a postularse. Aplica a la web, a asignar un correo y a asociar desde la Reserva.
 
 ### 5.10 Seguridad de los endpoints públicos
 - **Límite de peticiones por IP** (slowapi): 5/hora en `POST /api/postulaciones`, 3/hora en `POST /api/contacto`, 10/minuto en `POST /api/auth/google`. Excedido → `429 RATE_LIMITED`. Solo cuentan las peticiones válidas que llegan al endpoint.
 - **IP real detrás de proxies.** Si el backend está detrás de proxies propios (Next, Vercel, Cloud Run) hay que poner `TRUSTED_PROXY_HOPS` = cuántos proxies hay delante; la IP real se toma de esa posición **desde el final** de `X-Forwarded-For`. Con `0` (por defecto) se usa la IP de la conexión: tras un proxy **todos los usuarios compartirían el mismo cupo**.
 - Con varias instancias del backend el contador en memoria es por instancia: usar `RATE_LIMIT_STORAGE_URI=redis://…`.
 - **Tamaño del cuerpo** (middleware ASGI): `POST /api/postulaciones` se rechaza con `413` si `Content-Length` supera `MAX_PDF_MB` + 1 MB, sin leerlo; si no hay `Content-Length` (subida en trozos) se cuentan los bytes y se corta al pasar el límite. `POST /api/contacto` y `/api/auth/google`: 64 KB.
+
+### 5.11 Usuarios y roles
+- Roles: `analista`, `lider`, `gerencia`; permisos en la tabla 2.0. Los usuarios **nunca se borran** (trigger de la base) y **siempre debe quedar al menos un líder activo** (trigger + chequeo en el backend).
+- Desactivar o cambiar el rol de alguien surte efecto en su siguiente petición: el rol no se guarda en la cookie.
+- Un usuario nuevo solo puede ser del dominio `ALLOWED_EMAIL_DOMAIN`. Las cuentas fuera del dominio (p. ej. gerencia) siguen siendo una excepción que se agrega directamente en `usuarios` [POR CONFIRMAR].
+
+### 5.12 Convocatorias cerradas
+- Las convocatorias **se cierran, no se eliminan** (no existe `DELETE`). Cerrar deja `estado = cerrada`, `activa = false` y guarda quién, cuándo y por qué (`cerrada_por`, `cerrada_en`, `motivo_cierre`). La base impide que una cerrada vuelva a estar publicada.
+- Sobre una cerrada → `409 CONFLICT` "La convocatoria está cerrada.": `PATCH /vacantes/{id}`, `POST /estado` y `/calificacion` de sus candidatos, y `asociar` o `asignar` **hacia** ella. Cerrar una ya cerrada también da `409`.
+- Siguen permitidos: consultarla (vacante, resumen, candidatos), enviar su reporte, **anonimizar** (derecho de supresión) y **asociar desde su Reserva hacia otra convocatoria abierta**.
+- La web pública no la muestra y no recibe postulaciones.
 
 ## Pendientes [POR CONFIRMAR]
 
