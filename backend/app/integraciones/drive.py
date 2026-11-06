@@ -22,14 +22,14 @@ def _get_drive_service():
     
     if auth_mode == "oauth":
         # Modo OAuth (Usuario personal con Refresh Token)
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
+        client_id = os.getenv("DRIVE_OAUTH_CLIENT_ID")
+        client_secret = os.getenv("DRIVE_OAUTH_CLIENT_SECRET")
+        refresh_token = os.getenv("DRIVE_OAUTH_REFRESH_TOKEN")
 
         faltantes = []
-        if not client_id: faltantes.append("GOOGLE_CLIENT_ID")
-        if not client_secret: faltantes.append("GOOGLE_CLIENT_SECRET")
-        if not refresh_token: faltantes.append("GOOGLE_REFRESH_TOKEN")
+        if not client_id: faltantes.append("DRIVE_OAUTH_CLIENT_ID")
+        if not client_secret: faltantes.append("DRIVE_OAUTH_CLIENT_SECRET")
+        if not refresh_token: faltantes.append("DRIVE_OAUTH_REFRESH_TOKEN")
         
         if faltantes:
             raise ValueError(f"Faltan las siguientes variables de entorno para OAuth: {', '.join(faltantes)}")
