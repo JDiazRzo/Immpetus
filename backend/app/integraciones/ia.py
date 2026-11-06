@@ -1,5 +1,6 @@
 import io
 import os
+import unicodedata
 import pdfplumber
 import re
 from pydantic import BaseModel, Field, model_validator, model_validator
@@ -152,6 +153,43 @@ def retornar_por_evaluar(justificacion: str = "El PDF no contenía texto legible
         habilidades=[]
     )
 
+def _normalizar_texto(texto: str) -> str:
+    """
+    Normaliza un texto realizando las siguientes transformaciones:
+    1. Convierte todo a minúsculas.
+    2. Descompone caracteres Unicode y elimina tildes, diéresis (diacritic marks) y otros símbolos.
+    3. Reemplaza la 'ñ' por 'n'.
+    4. Limpia espacios múltiples o saltos de línea extra.
+    """
+    if not isinstance(texto, str):
+        return ""
+
+    texto = texto.lower()
+
+    texto = texto.replace('ñ', 'n')
+
+    texto_normalizado = unicodedata.normalize('NFKD', texto)
+
+
+    texto_sin_tildes = "".join(
+        c for c in texto_normalizado 
+        if unicodedata.category(c) != 'Mn'
+    )
+
+  
+    texto_final = re.sub(r'\s+', ' ', texto_sin_tildes).strip()
+
+    return texto_final
+
+def analizar_habilidades_detectadas(calificacion: Calificacion, catalogo_habilidades: list[str]) -> Calificacion:
+    """
+    Marca las habilidades detectadas en la calificación como 'en_catalogo' si están presentes en el catálogo oficial.
+    """
+    catalogo_normalizado = {_normalizar_texto(h) for h in catalogo_habilidades}
+    for habilidad in calificacion.habilidades:
+        esta_en_catalogo = _normalizar_texto(habilidad.nombre) in catalogo_normalizado
+        habilidad.en_catalogo = esta_en_catalogo
+
 def calificar_hv(pdf_bytes: bytes, vacante: VacanteDetalle, catalogo_habilidades: list[str]) -> Calificacion:
     """
     Devuelve nota 1-5, resumen, matriz y habilidades detectadas.
@@ -162,14 +200,14 @@ def calificar_hv(pdf_bytes: bytes, vacante: VacanteDetalle, catalogo_habilidades
     if not texto_cv.strip():
         return retornar_por_evaluar("El PDF no contenía texto legible.")
 
-
-    
     # 2. Llamar a la IA pasándole también el contexto de la vacante y el catálogo
-    # (Aquí integras el prompt con la vacante y el catálogo de habilidades)
     resultado_ia = analizar_cv_con_ia(texto_cv, vacante, catalogo_habilidades)
 
     if resultado_ia is None:
         return retornar_por_evaluar("Error al analizar el CV con la IA.")
+
+    # 3. Marcar habilidades detectadas como 'en_catalogo' según el catálogo oficial
+    resultado_analisis = analizar_habilidades_detectadas(resultado_ia, catalogo_habilidades)
     
     # 3. Retornar el objeto Calificacion final
-    return resultado_ia
+    return resultado_analisis
