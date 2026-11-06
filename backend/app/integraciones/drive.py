@@ -18,7 +18,7 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def _get_drive_service():
     """Selecciona dinámicamente el método de autenticación según la variable de entorno."""
-    auth_mode = os.getenv("DRIVE_AUTH_MODE", "service_account").lower()
+    auth_mode = os.getenv("DRIVE_AUTH", "service_account").lower()
     
     if auth_mode == "oauth":
         # Modo OAuth (Usuario personal con Refresh Token)
