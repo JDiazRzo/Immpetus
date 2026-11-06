@@ -1,4 +1,5 @@
 import io
+import os
 import pdfplumber
 import re
 from pydantic import BaseModel, Field, model_validator, model_validator
@@ -111,7 +112,7 @@ def analizar_cv_con_ia(texto_cv: str, vacante: VacanteDetalle, catalogo_habilida
         try:
             # Llamada a la API de Gemini pidiendo Structured Outputs
             response = client.models.generate_content(
-                model='gemini-3.8-flash',
+                model= os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
