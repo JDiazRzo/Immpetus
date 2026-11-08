@@ -18,18 +18,18 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def _get_drive_service():
     """Selecciona dinámicamente el método de autenticación según la variable de entorno."""
-    auth_mode = os.getenv("DRIVE_AUTH_MODE", "service_account").lower()
+    auth_mode = os.getenv("DRIVE_AUTH", "service_account").lower()
     
     if auth_mode == "oauth":
         # Modo OAuth (Usuario personal con Refresh Token)
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
+        client_id = os.getenv("DRIVE_OAUTH_CLIENT_ID")
+        client_secret = os.getenv("DRIVE_OAUTH_CLIENT_SECRET")
+        refresh_token = os.getenv("DRIVE_OAUTH_REFRESH_TOKEN")
 
         faltantes = []
-        if not client_id: faltantes.append("GOOGLE_CLIENT_ID")
-        if not client_secret: faltantes.append("GOOGLE_CLIENT_SECRET")
-        if not refresh_token: faltantes.append("GOOGLE_REFRESH_TOKEN")
+        if not client_id: faltantes.append("DRIVE_OAUTH_CLIENT_ID")
+        if not client_secret: faltantes.append("DRIVE_OAUTH_CLIENT_SECRET")
+        if not refresh_token: faltantes.append("DRIVE_OAUTH_REFRESH_TOKEN")
         
         if faltantes:
             raise ValueError(f"Faltan las siguientes variables de entorno para OAuth: {', '.join(faltantes)}")
@@ -58,7 +58,12 @@ def _obtener_o_crear_carpeta(service, nombre_carpeta: str, parent_id: str = None
     if parent_id:
         query += f" and '{parent_id}' in parents"
     
-    response = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+    response = service.files().list(
+        q=query, spaces='drive',
+        includeItemsFromAllDrives=True,
+        supportsAllDrives=True,
+        fields='files(id, name)'
+    ).execute()
     files = response.get('files', [])
     
     if files:
@@ -129,6 +134,7 @@ def renombrar_hv(drive_file_id: str, nota: int, nombre: str, cargo: str) -> None
     
     service.files().update(
         fileId=drive_file_id,
+        supportsAllDrives=True,
         body=file_metadata
     ).execute()
 
@@ -147,6 +153,7 @@ def mover_hv(drive_file_id: str, vacante) -> dict:
         fileId=drive_file_id,
         addParents=nueva_folder_id,
         removeParents=previous_parents,
+        supportsAllDrives=True,
         fields='id, webViewLink'
     ).execute()
     
@@ -160,7 +167,7 @@ def borrar_hv(drive_file_id: str) -> None:
     """Borra el PDF. Si ya no existe se considera éxito (el borrado debe ser reintentable)."""
     service = _get_drive_service()
     try:
-        service.files().delete(fileId=drive_file_id).execute()
+        service.files().delete(fileId=drive_file_id, supportsAllDrives=True).execute()
     except Exception as e:
         # Verificamos si el error es porque el archivo ya no existe (HTTP 404 Not Found)
         error_str = str(e)
