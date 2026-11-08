@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.errors import AppError, validation_error
 from app.limiter import LIMITE_POSTULACIONES, limiter
 from app.models.postulaciones import PostulacionCreada
 from app.services import postulaciones as svc
+from app.services.calificacion_ia import calificar_en_segundo_plano
 
 router = APIRouter(prefix="/api/postulaciones", tags=["postulaciones (público)"])
 _email = TypeAdapter(EmailStr)
@@ -21,6 +22,7 @@ _email = TypeAdapter(EmailStr)
 @limiter.limit(LIMITE_POSTULACIONES)
 async def crear(
     request: Request,
+    background: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     guardar_hv: Annotated[svc.GuardarHV, Depends(get_guardar_hv)],
     vacante_id: Annotated[UUID, Form()],
@@ -49,7 +51,7 @@ async def crear(
             "Debes autorizar el tratamiento de tus datos personales para postularte.",
             "autorizacion_datos",
         )
-    return svc.crear_postulacion_web(
+    creada = svc.crear_postulacion_web(
         db,
         vacante_id=vacante_id,
         nombre=nombre,
@@ -61,3 +63,5 @@ async def crear(
         acepta_futuras=autorizacion_futuras,
         guardar_hv=guardar_hv,
     )
+    background.add_task(calificar_en_segundo_plano, creada.id, contenido)
+    return creada

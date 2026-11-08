@@ -1,6 +1,7 @@
 """Punto de entrada de la API (ver docs/CONTRATO_API.md)."""
 
 from fastapi import FastAPI
+from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
@@ -41,7 +42,8 @@ app.include_router(admin.router)
 app.include_router(admin_gestion.router)
 app.include_router(admin_contactos.router)
 app.include_router(admin_usuarios.router)
-
+load_dotenv("../.env")  # integraciones (drive.py, ia.py) leen os.environ; Settings no lo llena
+load_dotenv(".env")
 
 @app.get("/health")
 def health() -> dict[str, str]:
