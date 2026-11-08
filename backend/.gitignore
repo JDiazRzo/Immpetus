@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+# Local test files
+app/integraciones/.pruebas
