@@ -9,7 +9,7 @@ from app.orm import Habilidad, Vacante, VacanteHabilidad
 def listar_activas(
     db: Session, q: str | None, modalidad: str | None, page: int, page_size: int
 ) -> tuple[list[VacanteResumen], int]:
-    filtros = [Vacante.activa.is_(True)]
+    filtros = [Vacante.activa.is_(True), Vacante.estado == "abierta"]
     if modalidad:
         filtros.append(Vacante.modalidad == modalidad)
     if q:
@@ -20,7 +20,7 @@ def listar_activas(
     filas = db.scalars(
         select(Vacante)
         .where(*filtros)
-        .order_by(Vacante.publicada_en.desc().nulls_last(), Vacante.cargo)
+        .order_by(Vacante.urgente.desc(), Vacante.publicada_en.desc().nulls_last(), Vacante.cargo)
         .limit(page_size)
         .offset((page - 1) * page_size)
     ).all()
@@ -28,7 +28,11 @@ def listar_activas(
 
 
 def obtener_activa_por_slug(db: Session, slug: str) -> VacanteDetalle:
-    v = db.scalar(select(Vacante).where(Vacante.slug == slug, Vacante.activa.is_(True)))
+    v = db.scalar(
+        select(Vacante).where(
+            Vacante.slug == slug, Vacante.activa.is_(True), Vacante.estado == "abierta"
+        )
+    )
     if v is None:
         raise not_found("Esta vacante no existe o ya no está disponible.")
     criterios = db.execute(
@@ -50,6 +54,7 @@ def obtener_activa_por_slug(db: Session, slug: str) -> VacanteDetalle:
         salario_texto=v.salario_texto,
         descripcion=v.descripcion,
         responsabilidades=list(v.responsabilidades or []),
+        urgente=v.urgente,
         criterios=[CriterioPublico(habilidad=n, obligatoria=o) for n, o in criterios],
         publicada_en=v.publicada_en,
     )

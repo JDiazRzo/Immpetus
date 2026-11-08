@@ -2,11 +2,12 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models.common import EstadoCandidato, Modalidad
 
 Rol = Literal["analista", "lider", "gerencia"]
+EstadoVacante = Literal["abierta", "cerrada"]
 Canal = Literal["web", "correo"]
 TipoEvento = Literal[
     "postulacion_recibida",
@@ -96,7 +97,10 @@ class VacanteAdmin(BaseModel):
     responsabilidades: list[str]
     urgente: bool
     activa: bool
+    estado: EstadoVacante
     publicada_en: datetime | None
+    cerrada_en: datetime | None
+    motivo_cierre: str | None
     criterios: list[CriterioAdmin]
 
 
@@ -205,3 +209,46 @@ class ContactoAdmin(BaseModel):
 class ContactoUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     atendido: bool
+
+
+class CerrarVacante(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    motivo: str = Field(min_length=3, max_length=500)
+
+
+# ---------- Usuarios (solo líder) ----------
+class UsuarioGestion(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    correo: str
+    nombre: str
+    rol: Rol
+    activo: bool
+    creado_en: datetime
+
+
+class UsuarioCrear(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    correo: EmailStr
+    nombre: str = Field(min_length=2, max_length=120)
+    rol: Rol
+
+    @field_validator("correo")
+    @classmethod
+    def _minusculas(cls, v: str) -> str:
+        return v.lower()
+
+
+class UsuarioUpdate(BaseModel):
+    """Solo se cambia el rol o el estado de la cuenta (o ambos). No existe DELETE."""
+
+    model_config = ConfigDict(extra="forbid")
+    rol: Rol | None = None
+    activo: bool | None = None
+
+    @model_validator(mode="after")
+    def _algo_que_cambiar(self) -> "UsuarioUpdate":
+        enviados = self.model_fields_set
+        if not enviados or any(getattr(self, campo) is None for campo in enviados):
+            raise ValueError("Envíe `rol` o `activo`.")
+        return self

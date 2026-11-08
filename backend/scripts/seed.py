@@ -5,12 +5,14 @@ Solo datos inventados. Nunca cargar HV reales.
 """
 
 import os
+import sys
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db import get_engine
+from app.config import get_settings
+from app.db import es_base_local, get_engine, host_de
 from app.orm import Habilidad, Usuario, Vacante, VacanteHabilidad
 
 RESP = ["[Responsabilidad]", "[Responsabilidad]", "[Responsabilidad]"]
@@ -80,10 +82,23 @@ VACANTES = [
 ]
 
 
+def _exigir_base_local() -> None:
+    """La semilla crea 4 vacantes ACTIVAS de mentira: en una base real saldrían en la web."""
+    url = get_settings().database_url
+    if es_base_local(url) or os.environ.get("SEED_PERMITIR_REMOTA") == "si":
+        return
+    sys.exit(
+        f"La semilla solo corre contra una base LOCAL y tu DATABASE_URL apunta a "
+        f"'{host_de(url)}'.\nSi de verdad quieres sembrar esa base, repite con "
+        "SEED_PERMITIR_REMOTA=si."
+    )
+
+
 def main() -> None:
+    _exigir_base_local()
     with Session(get_engine()) as db:
         # Para poder entrar al centro de mando en local: SEED_LIDER_CORREO=tu@immpetus.co
-        correo = os.environ.get("SEED_LIDER_CORREO", "").strip().lower()
+        correo = get_settings().seed_lider_correo.strip().lower()
         if correo and not db.scalar(select(Usuario).where(Usuario.correo == correo)):
             db.add(Usuario(correo=correo, nombre="Líder (semilla)", rol="lider", activo=True))
         for cod, slug, cargo, ciudad, mod, det, sal, urg, pub, crit in VACANTES:

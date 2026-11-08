@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.errors import not_found, validation_error
+from app.errors import AppError, not_found, validation_error
 from app.models.admin import CriterioAdmin, CriterioInput, VacanteAdmin, VacanteInput, VacanteUpdate
 from app.orm import Habilidad, Usuario, Vacante, VacanteHabilidad
 
@@ -89,7 +89,10 @@ def a_admin(db: Session, v: Vacante) -> VacanteAdmin:
         responsabilidades=list(v.responsabilidades or []),
         urgente=v.urgente,
         activa=v.activa,
+        estado=v.estado,
         publicada_en=v.publicada_en,
+        cerrada_en=v.cerrada_en,
+        motivo_cierre=v.motivo_cierre,
         criterios=[
             CriterioAdmin(habilidad_id=i, habilidad=n, obligatoria=o, peso=p)
             for i, n, o, p in criterios
@@ -104,10 +107,33 @@ def obtener(db: Session, vacante_id: uuid.UUID) -> Vacante:
     return v
 
 
-def listar(db: Session, page: int, page_size: int) -> tuple[list[VacanteAdmin], int]:
-    total = db.scalar(select(func.count()).select_from(Vacante)) or 0
+CERRADA = "La convocatoria está cerrada."
+
+
+def exigir_abierta(v: Vacante) -> None:
+    """Una convocatoria cerrada no admite cambios ni nuevas decisiones (409)."""
+    if v.estado == "cerrada":
+        raise AppError(409, "CONFLICT", CERRADA)
+
+
+def cerrar(db: Session, vacante_id: uuid.UUID, usuario: Usuario, motivo: str) -> VacanteAdmin:
+    """La deja cerrada y despublicada. No existe DELETE de vacantes: se cierran."""
+    v = obtener(db, vacante_id)
+    if v.estado == "cerrada":
+        raise AppError(409, "CONFLICT", "La convocatoria ya está cerrada.")
+    v.estado, v.activa = "cerrada", False
+    v.cerrada_en, v.cerrada_por, v.motivo_cierre = datetime.now(UTC), usuario.id, motivo
+    db.commit()
+    return a_admin(db, v)
+
+
+def listar(db: Session, estado: str, page: int, page_size: int) -> tuple[list[VacanteAdmin], int]:
+    """Solo las del `estado` pedido (contrato: sin parámetro, solo abiertas)."""
+    filtro = Vacante.estado == estado
+    total = db.scalar(select(func.count()).select_from(Vacante).where(filtro)) or 0
     filas = db.scalars(
         select(Vacante)
+        .where(filtro)
         .order_by(Vacante.creada_en.desc())
         .limit(page_size)
         .offset((page - 1) * page_size)
@@ -133,6 +159,7 @@ def crear(db: Session, usuario: Usuario, datos: VacanteInput) -> VacanteAdmin:
 
 def actualizar(db: Session, vacante_id: uuid.UUID, cambios: VacanteUpdate) -> VacanteAdmin:
     v = obtener(db, vacante_id)
+    exigir_abierta(v)
     datos = cambios.model_dump(exclude_unset=True)
     for campo in _OBLIGATORIOS:
         if campo in datos and datos[campo] is None:

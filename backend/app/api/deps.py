@@ -45,8 +45,14 @@ def get_enviar_reporte() -> Callable[[list[str], str], None]:
     """gmail.enviar_reporte(destinatarios, html), según el contrato (sección 3)."""
     if not get_settings().gmail_delegated_user:
         return integraciones_dev.enviar_reporte
-    from app.integraciones import gmail
-
+    try:
+        from app.integraciones import gmail
+    except (
+        ImportError
+    ) as exc:  # GMAIL_DELEGATED_USER puesto, pero integraciones/gmail.py no existe aún
+        raise AppError(
+            502, "EMAIL_ERROR", "El envío de correo todavía no está disponible. Intenta más tarde."
+        ) from exc
     return gmail.enviar_reporte
 
 
@@ -80,15 +86,24 @@ def usuario_actual(request: Request, db: Annotated[Session, Depends(get_db)]) ->
     return usuario
 
 
-def usuario_con_escritura(usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
-    """Gerencia solo consulta; analista y líder pueden modificar (decisión por confirmar)."""
-    if usuario.rol not in ROLES_ESCRITURA:
-        raise AppError(403, "FORBIDDEN", "Tu rol es de solo consulta.")
-    return usuario
+MENSAJE_SIN_PERMISO = "No tiene permiso para esta acción."
 
 
-def usuario_lider(usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
-    """Acciones con efecto legal (anonimizar) solo para el rol líder."""
-    if usuario.rol != "lider":
-        raise AppError(403, "FORBIDDEN", "Solo el líder de selección puede hacer esto.")
-    return usuario
+def requiere_rol(*roles: str) -> Callable[..., Usuario]:
+    """Dependencia que exige sesión válida Y uno de los roles (tabla 2.0 del contrato).
+
+    El rol se lee de la base en cada petición (usuario_actual): un cambio de rol o una
+    desactivación aplican de inmediato, sin esperar a que venza la cookie.
+    """
+
+    def dependencia(usuario: Annotated[Usuario, Depends(usuario_actual)]) -> Usuario:
+        if usuario.rol not in roles:
+            raise AppError(403, "FORBIDDEN", MENSAJE_SIN_PERMISO)
+        return usuario
+
+    return dependencia
+
+
+# Atajos de la tabla 2.0: gerencia solo consulta; el líder además cierra, anonimiza y gestiona.
+usuario_con_escritura = requiere_rol("analista", "lider")
+usuario_lider = requiere_rol("lider")

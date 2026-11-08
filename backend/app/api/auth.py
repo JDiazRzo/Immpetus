@@ -43,8 +43,11 @@ def login_google(
     correo = str(claims.get("email", "")).strip().lower()
     hd = str(claims.get("hd", "")).lower()
 
-    # Workspace (immpetus.co) trae 'hd'; Gmail personal no. Si viene, también debe coincidir.
-    if not correo.endswith(f"@{dominio}") or (hd and hd != dominio):
+    # El correo siempre debe ser del dominio. Workspace trae `hd`: si viene, debe coincidir.
+    # Con REQUIRE_HD=true (producción) `hd` es además OBLIGATORIO: una cuenta de Google sin
+    # Workspace con un correo del dominio no entra. En desarrollo se puede dejar en false.
+    hd_valido = hd == dominio if settings.require_hd else (not hd or hd == dominio)
+    if not correo.endswith(f"@{dominio}") or not hd_valido:
         raise AppError(403, "FORBIDDEN", f"Solo pueden entrar cuentas @{dominio}.")
 
     usuario = db.scalar(

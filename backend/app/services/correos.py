@@ -48,6 +48,8 @@ def asignar(
     vacante = db.get(Vacante, vacante_id)
     if vacante is None:
         raise not_found("La vacante no existe.")
+    if vacante.estado == "cerrada":
+        raise AppError(409, "CONFLICT", "La convocatoria está cerrada.")
     if not m.drive_file_id:
         raise AppError(409, "CONFLICT", "Este correo no tiene un PDF guardado.")
 
