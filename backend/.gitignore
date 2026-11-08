@@ -11,4 +11,4 @@ wheels/
 
 
 # Local test files
-app/integraciones/.pruebas
+app/integraciones/pruebas
