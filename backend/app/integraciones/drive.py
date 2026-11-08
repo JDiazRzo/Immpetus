@@ -5,6 +5,7 @@ from google.oauth2.credentials import Credentials  # pyright: ignore[reportMissi
 from googleapiclient.discovery import build  # pyright: ignore[reportMissingImports]
 from googleapiclient.http import MediaIoBaseUpload  # pyright: ignore[reportMissingImports]
 from io import BytesIO
+from app.models.postulaciones import DriveFile
 
 # Configuración de los scopes necesarios para Google Drive
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -117,10 +118,7 @@ def guardar_hv(pdf_bytes: bytes, vacante, nombre: str) -> dict:
         fields='id, webViewLink, webContentLink'
     ).execute()
     
-    return {
-        "id": file.get('id'),
-        "url": file.get('webViewLink')
-    }
+    return DriveFile(id=file.get('id'), url=file.get('webViewLink'))
 
 
 def renombrar_hv(drive_file_id: str, nota: int, nombre: str, cargo: str) -> None:
@@ -157,10 +155,7 @@ def mover_hv(drive_file_id: str, vacante) -> dict:
         fields='id, webViewLink'
     ).execute()
     
-    return {
-        "id": file.get('id'),
-        "url": file.get('webViewLink')
-    }
+    return DriveFile(id=file.get('id'), url=file.get('webViewLink'))
 
 
 def borrar_hv(drive_file_id: str) -> None:
